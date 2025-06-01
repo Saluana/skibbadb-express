@@ -160,6 +160,8 @@ export function createSkibbaExpress(
                             const schema = (collection as any).collectionSchema
                                 .schema;
                             let validFields: string[] = [];
+
+                            // Try different ways to access Zod schema shape
                             if (schema.shape) {
                                 validFields = Object.keys(schema.shape);
                             } else if (schema._def && schema._def.shape) {
@@ -170,6 +172,25 @@ export function createSkibbaExpress(
                             ) {
                                 validFields = Object.keys(schema._def.shape());
                             }
+
+                            // If we still don't have valid fields, try parsing the schema
+                            if (validFields.length === 0) {
+                                try {
+                                    const parsed = schema.safeParse({});
+                                    if (parsed.error) {
+                                        validFields = parsed.error.issues
+                                            .map((issue: any) => issue.path[0])
+                                            .filter(Boolean);
+                                    }
+                                } catch (e) {
+                                    // Fallback: allow common fields or return false
+                                    console.warn(
+                                        'Could not extract schema fields for validation'
+                                    );
+                                }
+                            }
+
+
                             return validFields.includes(field);
                         }
 

@@ -44,19 +44,7 @@ app.use(additionalSecurityHeaders);
 skibba.useCollection(users, {
     GET: {
         middleware: [rateLimitMiddleware],
-        hooks: {
-            afterQuery: async (results, req) => {
-                // Hide sensitive data for non-admin users
-                if (!req.user?.isAdmin) {
-                    return results.map((user) => ({
-                        id: user.id,
-                        name: user.name,
-                        role: user.role,
-                    }));
-                }
-                return results;
-            },
-        },
+        hooks: {},
     },
 
     POST: {
