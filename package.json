@@ -1,0 +1,32 @@
+{
+    "name": "skibbadb-express",
+    "module": "index.ts",
+    "type": "module",
+    "scripts": {
+        "start": "bun run index.ts",
+        "test": "bun run test.ts",
+        "test:security": "bun run security-test.ts",
+        "dev": "bun --watch index.ts"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@types/supertest": "^6.0.3"
+    },
+    "peerDependencies": {
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@types/express": "^5.0.2",
+        "@types/jsdom": "^21.1.7",
+        "dompurify": "^3.2.6",
+        "express": "^5.1.0",
+        "express-rate-limit": "^7.5.0",
+        "express-validator": "^7.2.1",
+        "helmet": "^8.1.0",
+        "jsdom": "^26.1.0",
+        "skibbadb": "^0.1.0",
+        "supertest": "^7.1.1",
+        "vitest": "^3.1.4",
+        "xss": "^1.0.15"
+    }
+}
