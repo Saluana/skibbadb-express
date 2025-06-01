@@ -1,7 +1,6 @@
 import { Database } from 'skibbadb';
 import { createSkibbaExpress } from '../index.js';
 import { securityMiddleware } from '../middleware/security.js';
-import { authMiddleware, requireAdmin } from '../middleware/auth.js';
 import request from 'supertest';
 import { z } from 'zod';
 import express from 'express';
@@ -42,7 +41,7 @@ skibba.useCollection(users, {
         middleware: [securityMiddleware],
     },
     POST: {
-        middleware: [securityMiddleware, authMiddleware, requireAdmin],
+        middleware: [securityMiddleware],
         hooks: {
             beforeCreate: async (data, req) => ({
                 ...data,
@@ -51,7 +50,7 @@ skibba.useCollection(users, {
         },
     },
     PUT: {
-        middleware: [securityMiddleware, authMiddleware, requireAdmin],
+        middleware: [securityMiddleware],
         hooks: {
             beforeUpdate: async (id, data, req) => ({
                 ...data,

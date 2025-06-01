@@ -148,13 +148,279 @@ export function createSkibbaExpress(
                 }
             );
 
-            // GET / - Get all items (with pagination)
+            // GET / - Get all items (with pagination and filtering)
             router.get(
                 '/',
                 ...middleware,
                 async (req: Request, res: Response, next: NextFunction) => {
                     try {
+                        // Helper to validate field names against schema
+                        function isValidField(field: string): boolean {
+                            if (field.includes('.')) return true; // allow nested fields
+                            const schema = (collection as any).collectionSchema
+                                .schema;
+                            let validFields: string[] = [];
+                            if (schema.shape) {
+                                validFields = Object.keys(schema.shape);
+                            } else if (schema._def && schema._def.shape) {
+                                validFields = Object.keys(schema._def.shape);
+                            } else if (
+                                schema._def &&
+                                typeof schema._def.shape === 'function'
+                            ) {
+                                validFields = Object.keys(schema._def.shape());
+                            }
+                            return validFields.includes(field);
+                        }
+
                         let query = collection.query();
+
+                        // Parse pagination parameters
+                        const page = req.query.page
+                            ? parseInt(req.query.page as string)
+                            : undefined;
+                        const limit = req.query.limit
+                            ? parseInt(req.query.limit as string)
+                            : undefined;
+                        const offset = req.query.offset
+                            ? parseInt(req.query.offset as string)
+                            : undefined;
+
+                        // Validate pagination parameters
+                        if (page !== undefined && (isNaN(page) || page < 1)) {
+                            res.status(400).json({
+                                error: 'Invalid pagination parameter',
+                                message:
+                                    'Page must be a positive integer starting from 1',
+                            });
+                            return;
+                        }
+
+                        if (
+                            limit !== undefined &&
+                            (isNaN(limit) || limit < 1 || limit > 1000)
+                        ) {
+                            res.status(400).json({
+                                error: 'Invalid pagination parameter',
+                                message:
+                                    'Limit must be a positive integer between 1 and 1000',
+                            });
+                            return;
+                        }
+
+                        if (
+                            offset !== undefined &&
+                            (isNaN(offset) || offset < 0)
+                        ) {
+                            res.status(400).json({
+                                error: 'Invalid pagination parameter',
+                                message:
+                                    'Offset must be a non-negative integer',
+                            });
+                            return;
+                        }
+
+                        // Parse sorting parameters
+                        const orderBy = req.query.orderBy as string;
+                        const sortDirection =
+                            (req.query.sort as string) || 'asc';
+
+                        if (
+                            orderBy &&
+                            !['asc', 'desc'].includes(sortDirection)
+                        ) {
+                            res.status(400).json({
+                                error: 'Invalid sort parameter',
+                                message:
+                                    'Sort direction must be either "asc" or "desc"',
+                            });
+                            return;
+                        }
+
+                        const excludedParams = new Set([
+                            'page',
+                            'limit',
+                            'offset',
+                            'orderBy',
+                            'sort',
+                        ]);
+
+                        // Validate filter fields before applying
+                        for (const [key, value] of Object.entries(req.query)) {
+                            if (
+                                excludedParams.has(key) ||
+                                value === undefined ||
+                                value === ''
+                            ) {
+                                continue;
+                            }
+                            let field = key;
+                            if (key.endsWith('_gt')) field = key.slice(0, -3);
+                            else if (key.endsWith('_gte'))
+                                field = key.slice(0, -4);
+                            else if (key.endsWith('_lt'))
+                                field = key.slice(0, -3);
+                            else if (key.endsWith('_lte'))
+                                field = key.slice(0, -4);
+                            else if (key.endsWith('_like'))
+                                field = key.slice(0, -5);
+                            else if (key.endsWith('_in'))
+                                field = key.slice(0, -3);
+                            if (!isValidField(field)) {
+                                res.status(400).json({
+                                    error: 'Invalid filter parameter',
+                                    message: `Invalid filter for field "${field}": Field '${field}' does not exist in schema`,
+                                });
+                                return;
+                            }
+                        }
+
+                        // Validate sort field before applying
+                        if (orderBy && !isValidField(orderBy)) {
+                            res.status(400).json({
+                                error: 'Invalid sort parameter',
+                                message: `Invalid sort field "${orderBy}": Field '${orderBy}' does not exist in schema`,
+                            });
+                            return;
+                        }
+
+                        // Apply filtering based on query parameters
+                        // const excludedParams = new Set([
+                        //     'page',
+                        //     'limit',
+                        //     'offset',
+                        //     'orderBy',
+                        //     'sort',
+                        // ]);
+
+                        // Validate filter fields before applying
+                        for (const [key, value] of Object.entries(req.query)) {
+                            if (
+                                excludedParams.has(key) ||
+                                value === undefined ||
+                                value === ''
+                            ) {
+                                continue;
+                            }
+
+                            try {
+                                // Handle different filter operators
+                                if (key.endsWith('_gt')) {
+                                    const field = key.slice(0, -3);
+                                    query = query
+                                        .where(field)
+                                        .gt(
+                                            isNaN(Number(value as string))
+                                                ? value
+                                                : Number(value as string)
+                                        );
+                                } else if (key.endsWith('_gte')) {
+                                    const field = key.slice(0, -4);
+                                    query = query
+                                        .where(field)
+                                        .gte(
+                                            isNaN(Number(value as string))
+                                                ? value
+                                                : Number(value as string)
+                                        );
+                                } else if (key.endsWith('_lt')) {
+                                    const field = key.slice(0, -3);
+                                    query = query
+                                        .where(field)
+                                        .lt(
+                                            isNaN(Number(value as string))
+                                                ? value
+                                                : Number(value as string)
+                                        );
+                                } else if (key.endsWith('_lte')) {
+                                    const field = key.slice(0, -4);
+                                    query = query
+                                        .where(field)
+                                        .lte(
+                                            isNaN(Number(value as string))
+                                                ? value
+                                                : Number(value as string)
+                                        );
+                                } else if (key.endsWith('_like')) {
+                                    const field = key.slice(0, -5);
+                                    query = query
+                                        .where(field)
+                                        .like(value as string);
+                                } else if (key.endsWith('_in')) {
+                                    const field = key.slice(0, -3);
+                                    const values = Array.isArray(value)
+                                        ? value
+                                        : [value];
+                                    query = query.where(field).in(values);
+                                } else {
+                                    // Default to equality filter
+                                    query = query.where(key).eq(value);
+                                }
+                            } catch (filterError: any) {
+                                // If field doesn't exist or filter fails, return error
+                                if (
+                                    filterError &&
+                                    filterError.name === 'ValidationError'
+                                ) {
+                                    res.status(400).json({
+                                        error: 'Invalid filter parameter',
+                                        message: `Invalid filter for field "${key}": ${filterError.message}`,
+                                    });
+                                } else {
+                                    res.status(400).json({
+                                        error: 'Invalid filter parameter',
+                                        message: `Invalid filter for field "${key}": ${
+                                            filterError instanceof Error
+                                                ? filterError.message
+                                                : 'Unknown error'
+                                        }`,
+                                    });
+                                }
+                                return;
+                            }
+                        }
+
+                        // Apply sorting
+                        if (orderBy) {
+                            try {
+                                query = query.orderBy(
+                                    orderBy,
+                                    sortDirection as 'asc' | 'desc'
+                                );
+                            } catch (sortError: any) {
+                                if (
+                                    sortError &&
+                                    sortError.name === 'ValidationError'
+                                ) {
+                                    res.status(400).json({
+                                        error: 'Invalid sort parameter',
+                                        message: `Invalid sort field "${orderBy}": ${sortError.message}`,
+                                    });
+                                } else {
+                                    res.status(400).json({
+                                        error: 'Invalid sort parameter',
+                                        message: `Invalid sort field "${orderBy}": ${
+                                            sortError instanceof Error
+                                                ? sortError.message
+                                                : 'Unknown error'
+                                        }`,
+                                    });
+                                }
+                                return;
+                            }
+                        }
+
+                        // Apply pagination
+                        if (page !== undefined && limit !== undefined) {
+                            query = query.page(page, limit);
+                        } else if (limit !== undefined) {
+                            query = query.limit(limit);
+                            if (offset !== undefined) {
+                                query = query.offset(offset);
+                            }
+                        } else if (offset !== undefined) {
+                            query = query.offset(offset);
+                        }
 
                         // Apply beforeQuery hook
                         if (config.GET?.hooks?.beforeQuery) {
@@ -164,7 +430,19 @@ export function createSkibbaExpress(
                             );
                         }
 
-                        const results = await query.toArray();
+                        let results: any[];
+                        try {
+                            results = await query.toArray();
+                        } catch (error: any) {
+                            if (error && error.name === 'ValidationError') {
+                                res.status(400).json({
+                                    error: 'Invalid filter parameter',
+                                    message: error.message,
+                                });
+                                return;
+                            }
+                            throw error;
+                        }
 
                         // Apply afterQuery hook
                         let finalResults = results;
@@ -175,7 +453,116 @@ export function createSkibbaExpress(
                             );
                         }
 
-                        res.json(finalResults);
+                        // Prepare response with pagination metadata if pagination was used
+                        if (page !== undefined && limit !== undefined) {
+                            // Get total count for pagination metadata
+                            let countQuery = collection.query();
+
+                            // Apply same filters for count (but no pagination/sorting)
+                            for (const [key, value] of Object.entries(
+                                req.query
+                            )) {
+                                if (
+                                    excludedParams.has(key) ||
+                                    value === undefined ||
+                                    value === ''
+                                ) {
+                                    continue;
+                                }
+
+                                try {
+                                    if (key.endsWith('_gt')) {
+                                        const field = key.slice(0, -3);
+                                        const numValue = isNaN(
+                                            Number(value as string)
+                                        )
+                                            ? value
+                                            : Number(value as string);
+                                        countQuery = countQuery
+                                            .where(field)
+                                            .gt(numValue);
+                                    } else if (key.endsWith('_gte')) {
+                                        const field = key.slice(0, -4);
+                                        const numValue = isNaN(
+                                            Number(value as string)
+                                        )
+                                            ? value
+                                            : Number(value as string);
+                                        countQuery = countQuery
+                                            .where(field)
+                                            .gte(numValue);
+                                    } else if (key.endsWith('_lt')) {
+                                        const field = key.slice(0, -3);
+                                        const numValue = isNaN(
+                                            Number(value as string)
+                                        )
+                                            ? value
+                                            : Number(value as string);
+                                        countQuery = countQuery
+                                            .where(field)
+                                            .lt(numValue);
+                                    } else if (key.endsWith('_lte')) {
+                                        const field = key.slice(0, -4);
+                                        const numValue = isNaN(
+                                            Number(value as string)
+                                        )
+                                            ? value
+                                            : Number(value as string);
+                                        countQuery = countQuery
+                                            .where(field)
+                                            .lte(numValue);
+                                    } else if (key.endsWith('_like')) {
+                                        const field = key.slice(0, -5);
+                                        countQuery = countQuery
+                                            .where(field)
+                                            .like(value as string);
+                                    } else if (key.endsWith('_in')) {
+                                        const field = key.slice(0, -3);
+                                        const values = Array.isArray(value)
+                                            ? value
+                                            : [value];
+                                        countQuery = countQuery
+                                            .where(field)
+                                            .in(values);
+                                    } else {
+                                        countQuery = countQuery
+                                            .where(key)
+                                            .eq(value);
+                                    }
+                                } catch {
+                                    // Ignore filter errors for count query
+                                }
+                            }
+
+                            let totalCount: number;
+                            try {
+                                totalCount = await countQuery.executeCount();
+                            } catch (error: any) {
+                                if (error && error.name === 'ValidationError') {
+                                    res.status(400).json({
+                                        error: 'Invalid filter parameter',
+                                        message: error.message,
+                                    });
+                                    return;
+                                }
+                                throw error;
+                            }
+                            const totalPages = Math.ceil(totalCount / limit);
+
+                            res.json({
+                                data: finalResults,
+                                pagination: {
+                                    page,
+                                    limit,
+                                    totalCount,
+                                    totalPages,
+                                    hasNextPage: page < totalPages,
+                                    hasPreviousPage: page > 1,
+                                },
+                            });
+                        } else {
+                            res.json(finalResults);
+                        }
                     } catch (error) {
                         next(error);
                     }
