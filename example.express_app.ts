@@ -1,7 +1,5 @@
-import { createSkibbaExpress } from './skibba-express.js';
+import { createSkibbaExpress } from './index.js';
 import { Database } from 'skibbadb';
-import { authMiddleware, requireAdmin } from './middleware/auth.js';
-import { loggingMiddleware } from './middleware/logging.js';
 import {
     securityMiddleware,
     rateLimitMiddleware,
@@ -11,6 +9,9 @@ import {
     validateUserInput,
 } from './middleware/security.js';
 import { z } from 'zod';
+import express from 'express';
+
+const app = express();
 
 // Simple example showing the basic usage
 const db = new Database({ path: 'example.db' });
@@ -33,17 +34,16 @@ const users = db.collection('users', usersSchema, {
     },
 });
 
-const app = createSkibbaExpress(db);
+const skibba = createSkibbaExpress(app, db);
 
 // Apply global security middleware (helmet for headers, rate limiting)
 app.use(helmetMiddleware);
 app.use(additionalSecurityHeaders);
-app.use(rateLimitMiddleware);
 
 // Configure the users collection with different middleware per method
-app.useCollection(users, {
+skibba.useCollection(users, {
     GET: {
-        middleware: [loggingMiddleware],
+        middleware: [rateLimitMiddleware],
         hooks: {
             afterQuery: async (results, req) => {
                 // Hide sensitive data for non-admin users
@@ -63,8 +63,6 @@ app.useCollection(users, {
         middleware: [
             securityMiddleware,
             strictRateLimitMiddleware,
-            authMiddleware,
-            requireAdmin,
             validateUserInput,
         ],
         hooks: {
@@ -85,8 +83,6 @@ app.useCollection(users, {
         middleware: [
             securityMiddleware,
             strictRateLimitMiddleware,
-            authMiddleware,
-            requireAdmin,
             validateUserInput,
         ],
         hooks: {
@@ -98,7 +94,7 @@ app.useCollection(users, {
     },
 
     DELETE: {
-        middleware: [strictRateLimitMiddleware, authMiddleware, requireAdmin],
+        middleware: [strictRateLimitMiddleware],
     },
 
     basePath: '/api/users',
@@ -126,15 +122,6 @@ app.get('/', (req, res) => {
             'POST /api/users': 'Create user (admin only)',
             'PUT /api/users/:id': 'Update user (admin only)',
             'DELETE /api/users/:id': 'Delete user (admin only)',
-        },
-        authentication: {
-            format: 'Bearer user:id:email:isAdmin',
-            example: 'Bearer user:1:admin@example.com:true',
-        },
-        examples: {
-            'Basic Blog': 'npm run example:blog',
-            'Todo App': 'npm run example:todo',
-            'Advanced Features': 'npm run example:advanced',
         },
     });
     return;

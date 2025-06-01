@@ -1,13 +1,12 @@
 import { Database } from 'skibbadb';
-import { createSkibbaExpress } from '../skibba-express.js';
-import {
-    securityMiddleware,
-    helmetMiddleware,
-    rateLimitMiddleware,
-} from '../middleware/security.js';
+import { createSkibbaExpress } from '../index.js';
+import { securityMiddleware } from '../middleware/security.js';
 import { authMiddleware, requireAdmin } from '../middleware/auth.js';
 import request from 'supertest';
 import { z } from 'zod';
+import express from 'express';
+
+const app = express();
 
 // Security Test Suite for SkibbaDB Express API
 console.log('🔒 Starting Security Test Suite...\n');
@@ -35,10 +34,10 @@ const users = testDb.collection('users', userSchema, {
 });
 
 // Create test app with security middleware
-const app = createSkibbaExpress(testDb);
+const skibba = createSkibbaExpress(app, testDb);
 
 // Configure users collection with security middleware
-app.useCollection(users, {
+skibba.useCollection(users, {
     GET: {
         middleware: [securityMiddleware],
     },

@@ -10,6 +10,9 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
+*.db 
+*.db-shm 
+*.db-wal
 # Caches
 
 .cache
