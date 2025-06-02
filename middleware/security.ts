@@ -1,12 +1,15 @@
 import { type Request, type Response, type NextFunction } from 'express';
-import DOMPurify from 'dompurify';
-import { JSDOM } from 'jsdom';
+import xss from 'xss';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 
-// Create a DOMPurify instance for server-side use
-const window = new JSDOM('').window;
-const purify = DOMPurify(window as any);
+// Configure XSS with a strict allowlist for performance
+const xssOptions = {
+    allowList: {}, // No HTML tags allowed by default
+    stripIgnoreTag: true,
+    stripIgnoreTagBody: ['script', 'style'],
+    css: false, // Disable CSS parsing for performance
+};
 
 // SQL injection patterns to detect and block
 const SQL_INJECTION_PATTERNS = [
@@ -101,24 +104,20 @@ const XSS_PATTERNS = [
 ];
 
 /**
- * Sanitizes input to prevent XSS attacks
+ * Sanitizes input to prevent XSS attacks using lightweight xss package
+ * Validates on input, expects output escaping to be handled by frontend
  */
 export function sanitizeInput(input: any): any {
     if (typeof input === 'string') {
-        // First, use DOMPurify to clean the input
-        let sanitized = purify.sanitize(input, {
-            ALLOWED_TAGS: [], // No HTML tags allowed
-            ALLOWED_ATTR: [], // No attributes allowed
-            KEEP_CONTENT: true, // Keep text content
-        });
+        // Use lightweight xss package instead of DOMPurify + JSDOM
+        let sanitized = xss(input, xssOptions);
 
-        // Additional manual sanitization for edge cases
+        // Additional lightweight sanitization for common attack vectors
         sanitized = sanitized
             .replace(/javascript:/gi, '')
             .replace(/vbscript:/gi, '')
             .replace(/data:/gi, '')
-            .replace(/\bon\w+\s*=/gi, '') // Remove event handlers
-            .replace(/<[^>]*>/g, ''); // Remove any remaining HTML tags
+            .replace(/\bon\w+\s*=/gi, ''); // Remove event handlers
 
         return sanitized;
     }
@@ -139,6 +138,39 @@ export function sanitizeInput(input: any): any {
     }
 
     return input;
+}
+
+/**
+ * Sanitizes rich text content with a limited allowlist for specific use cases
+ * Only use this for fields that explicitly require HTML content
+ */
+export function sanitizeRichText(input: string): string {
+    const richTextOptions = {
+        allowList: {
+            // Only allow safe formatting tags
+            'p': [],
+            'br': [],
+            'strong': [],
+            'em': [],
+            'b': [],
+            'i': [],
+            'u': [],
+            'ul': [],
+            'ol': [],
+            'li': [],
+            'h1': [],
+            'h2': [],
+            'h3': [],
+            'h4': [],
+            'h5': [],
+            'h6': [],
+        },
+        stripIgnoreTag: true,
+        stripIgnoreTagBody: ['script', 'style', 'iframe', 'object', 'embed'],
+        css: false, // Still disable CSS for performance
+    };
+
+    return xss(input, richTextOptions);
 }
 
 /**
@@ -219,7 +251,11 @@ export function detectXSS(input: any): boolean {
 }
 
 /**
- * Comprehensive security middleware that sanitizes input and detects attacks
+ * Comprehensive security middleware that validates input and detects attacks
+ * Uses "validate on input, escape on output" approach for optimal performance
+ * - Lightweight XSS sanitization with allowlist approach
+ * - Frontend must still handle output escaping
+ * - No heavy DOM construction per request
  */
 export const securityMiddleware = (
     req: Request,
@@ -324,12 +360,12 @@ export const securityMiddleware = (
             );
         }
 
-        // Sanitize request body to prevent XSS
+        // Lightweight XSS sanitization using allowlist approach (no DOM construction)
         if (req.body && typeof req.body === 'object') {
             req.body = sanitizeInput(req.body);
         }
 
-        // Sanitize query parameters - store in a new property since req.query is readonly
+        // Lightweight sanitization of query parameters (no DOM construction)
         if (req.query && typeof req.query === 'object') {
             // Create a new object with sanitized query parameters
             const sanitizedQuery = sanitizeInput(req.query);

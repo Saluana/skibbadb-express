@@ -5,7 +5,7 @@ import express, {
     type NextFunction,
 } from 'express';
 import { Database, Collection } from 'skibbadb';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { sanitizeInput } from './middleware/security.js';
 
 export interface MethodHooks {
@@ -46,6 +46,24 @@ export interface SkibbaExpressApp extends express.Application {
         config?: CollectionConfig
     ): void;
 }
+
+// Re-export types and interfaces for convenience
+export type { Database, Collection } from 'skibbadb';
+export type { Request, Response, RequestHandler, NextFunction } from 'express';
+
+// Re-export security utilities for easy access
+export {
+    sanitizeInput,
+    detectSQLInjection,
+    detectMaliciousPayload,
+    detectXSS,
+    securityMiddleware,
+    rateLimitMiddleware,
+    strictRateLimitMiddleware,
+    helmetMiddleware,
+    additionalSecurityHeaders,
+    validateUserInput
+} from './middleware/security.js';
 
 export function createSkibbaExpress(
     app: express.Application,
@@ -981,3 +999,6 @@ export function createSkibbaExpress(
 
     return app as unknown as SkibbaExpressApp;
 }
+
+// Default export for convenience
+export default createSkibbaExpress;
