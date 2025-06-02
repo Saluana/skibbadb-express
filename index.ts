@@ -208,15 +208,19 @@ export function createSkibbaExpress(
 
                         let query = collection.query();
 
+                        // Create sanitized query copy to avoid mutating req.query
+                        const sanitizedQuery = { ...req.query };
+                        (req as any).sanitizedQuery = sanitizedQuery;
+
                         // Parse pagination parameters
-                        const page = req.query.page
-                            ? parseInt(req.query.page as string)
+                        const page = sanitizedQuery.page
+                            ? parseInt(sanitizedQuery.page as string)
                             : undefined;
-                        const limit = req.query.limit
-                            ? parseInt(req.query.limit as string)
+                        const limit = sanitizedQuery.limit
+                            ? parseInt(sanitizedQuery.limit as string)
                             : undefined;
-                        const offset = req.query.offset
-                            ? parseInt(req.query.offset as string)
+                        const offset = sanitizedQuery.offset
+                            ? parseInt(sanitizedQuery.offset as string)
                             : undefined;
 
                         // Validate pagination parameters
@@ -254,9 +258,9 @@ export function createSkibbaExpress(
                         }
 
                         // Parse sorting parameters
-                        const orderBy = req.query.orderBy as string;
+                        const orderBy = sanitizedQuery.orderBy as string;
                         const sortDirection =
-                            (req.query.sort as string) || 'asc';
+                            (sanitizedQuery.sort as string) || 'asc';
 
                         if (
                             orderBy &&
@@ -279,7 +283,7 @@ export function createSkibbaExpress(
                         ]);
 
                         // Validate filter fields before applying
-                        for (const [key, value] of Object.entries(req.query)) {
+                        for (const [key, value] of Object.entries(sanitizedQuery)) {
                             if (
                                 excludedParams.has(key) ||
                                 value === undefined ||
@@ -327,7 +331,7 @@ export function createSkibbaExpress(
                         // ]);
 
                         // Validate filter fields before applying
-                        for (const [key, value] of Object.entries(req.query)) {
+                        for (const [key, value] of Object.entries(sanitizedQuery)) {
                             if (
                                 excludedParams.has(key) ||
                                 value === undefined ||
@@ -493,7 +497,7 @@ export function createSkibbaExpress(
 
                             // Apply same filters for count (but no pagination/sorting)
                             for (const [key, value] of Object.entries(
-                                req.query
+                                sanitizedQuery
                             )) {
                                 if (
                                     excludedParams.has(key) ||
