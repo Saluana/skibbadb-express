@@ -73,30 +73,20 @@ export function createSkibbaExpress(
     app: express.Application,
     database: Database
 ): SkibbaExpressApp {
-    // Default middleware with error handling
-    app.use(
-        express.json({
-            verify: (req, res, buf) => {
-                try {
-                    JSON.parse(buf.toString());
-                } catch (e) {
-                    (res as any).locals.jsonError = true;
-                }
-            },
-        })
-    );
+    // Default middleware with built-in error handling
+    app.use(express.json({ limit: '10mb' }));
     app.use(express.urlencoded({ extended: true }));
 
-    // JSON parsing error handler
-    app.use((req: Request, res: Response, next: NextFunction) => {
-        if ((res as any).locals.jsonError) {
+    // JSON parsing error handler for malformed JSON
+    app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+        if (err instanceof SyntaxError && 'body' in err) {
             res.status(400).json({
                 error: 'Invalid JSON',
                 message: 'Request body contains invalid JSON',
             });
             return;
         }
-        next();
+        next(err);
     });
 
     // Add the useCollection method to the app
