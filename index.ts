@@ -212,47 +212,47 @@ export function createSkibbaExpress(
                         const sanitizedQuery = { ...req.query };
                         (req as any).sanitizedQuery = sanitizedQuery;
 
-                        // Parse pagination parameters
-                        const page = sanitizedQuery.page
-                            ? parseInt(sanitizedQuery.page as string)
-                            : undefined;
-                        const limit = sanitizedQuery.limit
-                            ? parseInt(sanitizedQuery.limit as string)
-                            : undefined;
-                        const offset = sanitizedQuery.offset
-                            ? parseInt(sanitizedQuery.offset as string)
-                            : undefined;
-
-                        // Validate pagination parameters
-                        if (page !== undefined && (isNaN(page) || page < 1)) {
-                            res.status(400).json({
-                                error: 'Invalid pagination parameter',
-                                message:
-                                    'Page must be a positive integer starting from 1',
-                            });
-                            return;
+                        // Helper function to validate and parse unsigned integers
+                        function parseUnsignedInt(value: string | undefined, paramName: string, min: number = 0, max?: number): number | undefined {
+                            if (value === undefined || value === '') return undefined;
+                            
+                            // Check if value contains only digits (and optional leading/trailing whitespace)
+                            const trimmedValue = value.toString().trim();
+                            if (!/^\d+$/.test(trimmedValue)) {
+                                throw new Error(`${paramName} must be a valid unsigned integer`);
+                            }
+                            
+                            const parsed = parseInt(trimmedValue, 10);
+                            
+                            // Additional safety check for NaN (though regex should prevent this)
+                            if (isNaN(parsed)) {
+                                throw new Error(`${paramName} must be a valid unsigned integer`);
+                            }
+                            
+                            if (parsed < min) {
+                                throw new Error(`${paramName} must be at least ${min}`);
+                            }
+                            
+                            if (max !== undefined && parsed > max) {
+                                throw new Error(`${paramName} must not exceed ${max}`);
+                            }
+                            
+                            return parsed;
                         }
 
-                        if (
-                            limit !== undefined &&
-                            (isNaN(limit) || limit < 1 || limit > 1000)
-                        ) {
-                            res.status(400).json({
-                                error: 'Invalid pagination parameter',
-                                message:
-                                    'Limit must be a positive integer between 1 and 1000',
-                            });
-                            return;
-                        }
+                        // Parse and validate pagination parameters
+                        let page: number | undefined;
+                        let limit: number | undefined;
+                        let offset: number | undefined;
 
-                        if (
-                            offset !== undefined &&
-                            (isNaN(offset) || offset < 0)
-                        ) {
+                        try {
+                            page = parseUnsignedInt(sanitizedQuery.page as string, 'Page', 1);
+                            limit = parseUnsignedInt(sanitizedQuery.limit as string, 'Limit', 1, 1000);
+                            offset = parseUnsignedInt(sanitizedQuery.offset as string, 'Offset', 0);
+                        } catch (error: any) {
                             res.status(400).json({
                                 error: 'Invalid pagination parameter',
-                                message:
-                                    'Offset must be a non-negative integer',
+                                message: error.message,
                             });
                             return;
                         }

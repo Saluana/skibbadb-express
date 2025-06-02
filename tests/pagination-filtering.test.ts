@@ -143,6 +143,44 @@ describe('Pagination and Filtering Tests', () => {
             // Invalid offset
             await request(app).get('/api/users?offset=-1').expect(400);
         });
+
+        test('should prevent NaN behavior in pagination parameters', async () => {
+            // Test non-numeric page values
+            const invalidPageResponse = await request(app)
+                .get('/api/users?page=abc&limit=10')
+                .expect(400);
+            expect(invalidPageResponse.body.message).toContain('Page must be a valid unsigned integer');
+
+            // Test non-numeric limit values
+            const invalidLimitResponse = await request(app)
+                .get('/api/users?page=1&limit=xyz')
+                .expect(400);
+            expect(invalidLimitResponse.body.message).toContain('Limit must be a valid unsigned integer');
+
+            // Test non-numeric offset values
+            const invalidOffsetResponse = await request(app)
+                .get('/api/users?offset=not-a-number')
+                .expect(400);
+            expect(invalidOffsetResponse.body.message).toContain('Offset must be a valid unsigned integer');
+
+            // Test decimal values (should be rejected)
+            await request(app).get('/api/users?page=1.5&limit=10').expect(400);
+            await request(app).get('/api/users?limit=10.7').expect(400);
+            await request(app).get('/api/users?offset=5.2').expect(400);
+
+            // Test negative values with proper error messages
+            const negativePageResponse = await request(app)
+                .get('/api/users?page=-1&limit=10')
+                .expect(400);
+            expect(negativePageResponse.body.message).toContain('Page must be a valid unsigned integer');
+
+            // Test empty string values (should be treated as undefined)
+            await request(app).get('/api/users?page=&limit=10').expect(200);
+            await request(app).get('/api/users?limit=&offset=0').expect(200);
+
+            // Test values with leading/trailing whitespace (should be accepted)
+            await request(app).get('/api/users?page=%201%20&limit=%2010%20').expect(200);
+        });
     });
 
     describe('Filtering', () => {
