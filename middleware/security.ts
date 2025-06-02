@@ -11,97 +11,41 @@ const xssOptions = {
     css: false, // Disable CSS parsing for performance
 };
 
-// SQL injection patterns to detect and block
-const SQL_INJECTION_PATTERNS = [
-    // Classic SQL injection patterns
-    /(\bor\b|\band\b)\s+['"`]?\w+['"`]?\s*=\s*['"`]?\w+['"`]?/i,
-    /union\s+select/i,
-    /select\s+\*\s+from/i,
-    /drop\s+table/i,
-    /delete\s+from/i,
-    /update\s+\w+\s+set/i,
-    /insert\s+into/i,
-    /exec\s*\(/i,
-    /execute\s*\(/i,
-    /script\s*>/i,
-    // SQL comments
-    /--/,
-    /\/\*/,
-    /\*\//,
-    // SQL string manipulation
-    /;\s*(drop|delete|update|insert|create|alter|exec)/i,
-    // Hex encoding attempts
-    /0x[0-9a-f]+/i,
-    // UNION attacks
-    /\bunion\b.*\bselect\b/i,
-    // Boolean based injection
-    /'\s*(or|and)\s+'?\d+'?\s*[=><!]/i,
-    // Time based injection
-    /waitfor\s+delay/i,
-    /sleep\s*\(/i,
-    /benchmark\s*\(/i,
-];
+// Whitelist approach for allowed characters in different contexts
+const ALLOWED_PATTERNS = {
+    // Safe alphanumeric with common punctuation for general text
+    GENERAL_TEXT: /^[a-zA-Z0-9\s\-_.@+,!?()[\]{}:;'"\/\n\r]*$/,
+    
+    // Strict alphanumeric only for identifiers
+    IDENTIFIER: /^[a-zA-Z0-9_-]+$/,
+    
+    // Email pattern (basic but secure)
+    EMAIL: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+    
+    // URL pattern (basic but secure)
+    URL: /^https?:\/\/[a-zA-Z0-9.-]+(?:\.[a-zA-Z]{2,})?(?:\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=-]*)?$/,
+    
+    // Numeric values
+    NUMBER: /^-?\d+(?:\.\d+)?$/,
+    
+    // Boolean values
+    BOOLEAN: /^(true|false)$/i,
+    
+    // Date/time ISO format
+    DATETIME: /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})?)?$/,
+};
 
-// Additional malicious payload patterns
-const MALICIOUS_PAYLOAD_PATTERNS = [
-    // Path traversal attacks
-    /\.\.[\/\\]/,
-    /\.\.%2f/i,
-    /\.\.%5c/i,
-    /\.\.\\/,
-    /\.\.\//,
-
-    // Command injection
-    /;\s*(cat|ls|dir|type|more|head|tail|grep|find|whoami|id|pwd|uname)/i,
-    /&\s*(cat|ls|dir|type|more|head|tail|grep|find|whoami|id|pwd|uname)/i,
-    /\|\s*(cat|ls|dir|type|more|head|tail|grep|find|whoami|id|pwd|uname)/i,
-    /`[^`]*`/, // Backtick command execution
-    /\$\([^)]*\)/, // Command substitution
-
-    // NoSQL injection
-    /\{\s*['"]\$gt['"]?\s*:\s*['"]/i,
-    /\{\s*['"]\$ne['"]?\s*:\s*/i,
-    /\{\s*['"]\$regex['"]?\s*:\s*/i,
-    /\{\s*['"]\$where['"]?\s*:\s*/i,
-    /\{\s*['"]\$in['"]?\s*:\s*\[/i,
-    /\{\s*['"]\$nin['"]?\s*:\s*\[/i,
-
-    // LDAP injection
-    /\(\s*\|/,
-    /\)\s*\(/,
-    /\*\)\s*\(/,
-
-    // Server-side includes
-    /<!--\s*#/,
-
-    // File inclusion
-    /php:\/\//i,
-    /file:\/\//i,
-    /data:\/\//i,
-
-    // XML injection
-    /<!ENTITY/i,
-    /<!DOCTYPE.*\[/i,
-];
-
-// XSS patterns to detect and sanitize
-const XSS_PATTERNS = [
-    /<script[^>]*>.*?<\/script>/gi,
-    /<iframe[^>]*>.*?<\/iframe>/gi,
-    /<object[^>]*>.*?<\/object>/gi,
-    /<embed[^>]*>/gi,
-    /<link[^>]*>/gi,
-    /javascript:/gi,
-    /vbscript:/gi,
-    /onload=/gi,
-    /onerror=/gi,
-    /onclick=/gi,
-    /onmouseover=/gi,
-    /onfocus=/gi,
-    /onblur=/gi,
-    /onchange=/gi,
-    /onsubmit=/gi,
-];
+// Simple forbidden character sets (much faster than complex regex)
+const FORBIDDEN_CHARS = {
+    // Characters that are never allowed in user input
+    NEVER_ALLOWED: ['<', '>', '{', '}', '\\', '`', '$'],
+    
+    // SQL-related characters that require validation
+    SQL_SUSPICIOUS: [';', '--', '/*', '*/', 'union', 'select', 'drop', 'delete', 'insert', 'update'],
+    
+    // Script-related strings
+    SCRIPT_SUSPICIOUS: ['javascript:', 'vbscript:', 'data:', 'file:', 'php:'],
+};
 
 /**
  * Sanitizes input to prevent XSS attacks using lightweight xss package
@@ -174,85 +118,124 @@ export function sanitizeRichText(input: string): string {
 }
 
 /**
- * Detects potential SQL injection attempts
+ * Validates input using whitelist approach - much faster than regex blacklists
  */
-export function detectSQLInjection(input: any): boolean {
+export function validateInputSafety(input: any, context: 'general' | 'identifier' | 'email' | 'url' | 'number' = 'general'): { isValid: boolean; reason?: string } {
     if (typeof input === 'string') {
-        return SQL_INJECTION_PATTERNS.some((pattern) => pattern.test(input));
-    }
-
-    if (Array.isArray(input)) {
-        return input.some(detectSQLInjection);
-    }
-
-    if (input && typeof input === 'object') {
-        return Object.entries(input).some(
-            ([key, value]) =>
-                detectSQLInjection(key) || detectSQLInjection(value)
-        );
-    }
-
-    return false;
-}
-
-/**
- * Detects potential malicious payloads (path traversal, command injection, NoSQL injection, etc.)
- */
-export function detectMaliciousPayload(input: any): boolean {
-    if (typeof input === 'string') {
-        return MALICIOUS_PAYLOAD_PATTERNS.some((pattern) =>
-            pattern.test(input)
-        );
-    }
-
-    if (Array.isArray(input)) {
-        return input.some(detectMaliciousPayload);
-    }
-
-    if (input && typeof input === 'object') {
-        // Convert object to JSON string to detect NoSQL injection patterns
-        const jsonString = JSON.stringify(input);
-        if (
-            MALICIOUS_PAYLOAD_PATTERNS.some((pattern) =>
-                pattern.test(jsonString)
-            )
-        ) {
-            return true;
+        // Fast character-based validation first
+        const lowerInput = input.toLowerCase();
+        
+        // Check for never-allowed characters
+        if (FORBIDDEN_CHARS.NEVER_ALLOWED.some(char => input.includes(char))) {
+            return { isValid: false, reason: 'Contains forbidden characters' };
         }
-
-        return Object.entries(input).some(
-            ([key, value]) =>
-                detectMaliciousPayload(key) || detectMaliciousPayload(value)
-        );
-    }
-
-    return false;
-}
-
-/**
- * Detects potential XSS attempts
- */
-export function detectXSS(input: any): boolean {
-    if (typeof input === 'string') {
-        return XSS_PATTERNS.some((pattern) => pattern.test(input));
+        
+        // Check for SQL-suspicious strings (simple includes, not regex)
+        if (FORBIDDEN_CHARS.SQL_SUSPICIOUS.some(term => lowerInput.includes(term))) {
+            return { isValid: false, reason: 'Contains SQL-suspicious content' };
+        }
+        
+        // Check for script-suspicious strings
+        if (FORBIDDEN_CHARS.SCRIPT_SUSPICIOUS.some(term => lowerInput.includes(term))) {
+            return { isValid: false, reason: 'Contains script-suspicious content' };
+        }
+        
+        // Context-specific validation with simple patterns
+        switch (context) {
+            case 'identifier':
+                if (!ALLOWED_PATTERNS.IDENTIFIER.test(input)) {
+                    return { isValid: false, reason: 'Invalid identifier format' };
+                }
+                break;
+            case 'email':
+                if (!ALLOWED_PATTERNS.EMAIL.test(input)) {
+                    return { isValid: false, reason: 'Invalid email format' };
+                }
+                break;
+            case 'url':
+                if (!ALLOWED_PATTERNS.URL.test(input)) {
+                    return { isValid: false, reason: 'Invalid URL format' };
+                }
+                break;
+            case 'number':
+                if (!ALLOWED_PATTERNS.NUMBER.test(input)) {
+                    return { isValid: false, reason: 'Invalid number format' };
+                }
+                break;
+            case 'general':
+            default:
+                if (!ALLOWED_PATTERNS.GENERAL_TEXT.test(input)) {
+                    return { isValid: false, reason: 'Contains invalid characters' };
+                }
+                break;
+        }
+        
+        return { isValid: true };
     }
 
     if (Array.isArray(input)) {
-        return input.some(detectXSS);
+        for (const item of input) {
+            const result = validateInputSafety(item, context);
+            if (!result.isValid) {
+                return result;
+            }
+        }
+        return { isValid: true };
     }
 
     if (input && typeof input === 'object') {
-        return Object.entries(input).some(
-            ([key, value]) => detectXSS(key) || detectXSS(value)
-        );
+        for (const [key, value] of Object.entries(input)) {
+            // Validate keys as identifiers
+            const keyResult = validateInputSafety(key, 'identifier');
+            if (!keyResult.isValid) {
+                return { isValid: false, reason: `Invalid key: ${keyResult.reason}` };
+            }
+            
+            // Validate values based on context
+            const valueResult = validateInputSafety(value, context);
+            if (!valueResult.isValid) {
+                return valueResult;
+            }
+        }
+        return { isValid: true };
     }
 
-    return false;
+    return { isValid: true };
 }
 
 /**
- * Comprehensive security middleware that validates input and detects attacks
- * Uses "validate on input, escape on output" approach for optimal performance
+ * Simple type-based validation for known field types
+ */
+export function validateFieldType(value: any, fieldName: string): { isValid: boolean; reason?: string } {
+    // Define expected field types based on common patterns
+    const fieldTypeMap: Record<string, string> = {
+        'id': 'identifier',
+        'email': 'email',
+        'website': 'url',
+        'url': 'url',
+        'name': 'general',
+        'title': 'general',
+        'description': 'general',
+        'bio': 'general',
+        'role': 'identifier',
+        'status': 'identifier',
+        'age': 'number',
+        'count': 'number',
+        'price': 'number',
+        'createdAt': 'general', // Allow datetime strings
+        'updatedAt': 'general',
+    };
+
+    const context = fieldTypeMap[fieldName] || 'general';
+    return validateInputSafety(value, context as any);
+}
+
+/**
+ * Comprehensive security middleware with optimized validation approach
+ * Performance optimizations:
+ * - Whitelist validation instead of regex blacklists (prevents ReDoS)
+ * - Simple character/string checks instead of complex patterns
+ * - Schema-based field type validation
  * - Lightweight XSS sanitization with allowlist approach
  * - Frontend must still handle output escaping
  * - No heavy DOM construction per request
@@ -296,8 +279,12 @@ export const securityMiddleware = (
             ? JSON.parse(JSON.stringify(req.body))
             : null;
 
-        // Check for various types of attacks in user-controlled data
-        const userInputs = [req.body, req.query, req.params];
+        // Fast whitelist-based validation for all user inputs
+        const userInputs = [
+            { data: req.body, name: 'body' },
+            { data: req.query, name: 'query' },
+            { data: req.params, name: 'params' }
+        ];
 
         // Only check specific suspicious headers, not all headers
         const suspiciousHeaders = {
@@ -306,58 +293,52 @@ export const securityMiddleware = (
             referer: req.headers['referer'],
         };
 
-        // Check for SQL injection
-        for (const input of userInputs) {
-            if (input && detectSQLInjection(input)) {
-                console.warn(
-                    `🚨 SQL Injection attempt detected from ${req.ip}:`,
-                    input
-                );
-                res.status(400).json({
-                    error: 'Security violation',
-                    message: 'Malicious input detected and blocked',
-                });
-                return;
+        // Validate all user inputs using whitelist approach (much faster than regex blacklists)
+        for (const { data, name } of userInputs) {
+            if (data && typeof data === 'object') {
+                for (const [key, value] of Object.entries(data)) {
+                    const fieldValidation = validateFieldType(value, key);
+                    if (!fieldValidation.isValid) {
+                        console.warn(
+                            `🚨 Invalid input detected in ${name}.${key} from ${req.ip}:`,
+                            { value, reason: fieldValidation.reason }
+                        );
+                        res.status(400).json({
+                            error: 'Validation failed',
+                            message: `Invalid ${key}: ${fieldValidation.reason}`,
+                            field: key
+                        });
+                        return;
+                    }
+                }
+            } else if (data) {
+                const validation = validateInputSafety(data);
+                if (!validation.isValid) {
+                    console.warn(
+                        `🚨 Invalid input detected in ${name} from ${req.ip}:`,
+                        { data, reason: validation.reason }
+                    );
+                    res.status(400).json({
+                        error: 'Validation failed',
+                        message: `Invalid ${name}: ${validation.reason}`,
+                    });
+                    return;
+                }
             }
         }
 
-        // Check for malicious payloads (path traversal, command injection, NoSQL injection, etc.)
-        for (const input of userInputs) {
-            if (input && detectMaliciousPayload(input)) {
-                console.warn(
-                    `🚨 Malicious payload detected from ${req.ip}:`,
-                    input
-                );
-                res.status(400).json({
-                    error: 'Security violation',
-                    message: 'Malicious payload detected and blocked',
-                });
-                return;
-            }
-        }
-
-        // Check suspicious headers separately
-        if (
-            detectSQLInjection(suspiciousHeaders) ||
-            detectMaliciousPayload(suspiciousHeaders)
-        ) {
+        // Check suspicious headers with whitelist validation
+        const headerValidation = validateInputSafety(suspiciousHeaders);
+        if (!headerValidation.isValid) {
             console.warn(
-                `🚨 Malicious content in headers from ${req.ip}:`,
-                suspiciousHeaders
+                `🚨 Invalid content in headers from ${req.ip}:`,
+                { headers: suspiciousHeaders, reason: headerValidation.reason }
             );
             res.status(400).json({
                 error: 'Security violation',
-                message: 'Malicious input detected in headers',
+                message: 'Invalid input detected in headers',
             });
             return;
-        }
-
-        // Check for XSS in original data before sanitization
-        if (originalBody && detectXSS(originalBody)) {
-            console.warn(
-                `🚨 XSS attempt detected and will be sanitized from ${req.ip}:`,
-                originalBody
-            );
         }
 
         // Lightweight XSS sanitization using allowlist approach (no DOM construction)

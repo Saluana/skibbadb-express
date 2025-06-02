@@ -54,9 +54,9 @@ export type { Request, Response, RequestHandler, NextFunction } from 'express';
 // Re-export security utilities for easy access
 export {
     sanitizeInput,
-    detectSQLInjection,
-    detectMaliciousPayload,
-    detectXSS,
+    sanitizeRichText,
+    validateInputSafety,
+    validateFieldType,
     securityMiddleware,
     rateLimitMiddleware,
     strictRateLimitMiddleware,
