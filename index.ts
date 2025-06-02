@@ -73,16 +73,23 @@ export function createSkibbaExpress(
     app: express.Application,
     database: Database
 ): SkibbaExpressApp {
-    // Default middleware with built-in error handling
-    app.use(express.json({ limit: '10mb' }));
-    app.use(express.urlencoded({ extended: true }));
+    // Default middleware with built-in error handling and request size limits
+    app.use(express.json({ limit: '10kb' }));
+    app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
-    // JSON parsing error handler for malformed JSON
+    // JSON parsing error handler for malformed JSON and size limits
     app.use((err: any, req: Request, res: Response, next: NextFunction) => {
         if (err instanceof SyntaxError && 'body' in err) {
             res.status(400).json({
                 error: 'Invalid JSON',
                 message: 'Request body contains invalid JSON',
+            });
+            return;
+        }
+        if (err.type === 'entity.too.large') {
+            res.status(413).json({
+                error: 'Payload too large',
+                message: 'Request body exceeds size limit',
             });
             return;
         }
@@ -631,16 +638,6 @@ export function createSkibbaExpress(
                             return;
                         }
 
-                        // Check for suspicious payloads (large objects, deep nesting)
-                        const dataString = JSON.stringify(data);
-                        if (dataString.length > 10000) {
-                            // 10KB limit
-                            res.status(413).json({
-                                error: 'Payload too large',
-                                message: 'Request body exceeds size limit',
-                            });
-                            return;
-                        }
 
                         // Prevent prototype pollution by checking for dangerous keys
                         const dangerousKeys = [
@@ -803,16 +800,6 @@ export function createSkibbaExpress(
                             return;
                         }
 
-                        // Check for suspicious payloads
-                        const dataString = JSON.stringify(data);
-                        if (dataString.length > 10000) {
-                            // 10KB limit
-                            res.status(413).json({
-                                error: 'Payload too large',
-                                message: 'Request body exceeds size limit',
-                            });
-                            return;
-                        }
 
                         // Prevent prototype pollution
                         const dangerousKeys = [
