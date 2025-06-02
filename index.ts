@@ -398,7 +398,17 @@ export function createSkibbaExpress(
                                     query = query.where(field).in(values);
                                 } else {
                                     // Default to equality filter
-                                    query = query.where(key).eq(value);
+                                    // Convert string boolean values to actual booleans
+                                    let convertedValue: any = value;
+                                    if (value === 'true') {
+                                        convertedValue = true;
+                                    } else if (value === 'false') {
+                                        convertedValue = false;
+                                    } else if (!isNaN(Number(value as string))) {
+                                        // Convert numeric strings to numbers for proper comparison
+                                        convertedValue = Number(value as string);
+                                    }
+                                    query = query.where(key).eq(convertedValue);
                                 }
                             } catch (filterError: any) {
                                 // If field doesn't exist or filter fails, return error
@@ -569,9 +579,18 @@ export function createSkibbaExpress(
                                             .where(field)
                                             .in(values);
                                     } else {
+                                        // Convert string boolean values to actual booleans for count query
+                                        let convertedValue: any = value;
+                                        if (value === 'true') {
+                                            convertedValue = true;
+                                        } else if (value === 'false') {
+                                            convertedValue = false;
+                                        } else if (!isNaN(Number(value as string))) {
+                                            convertedValue = Number(value as string);
+                                        }
                                         countQuery = countQuery
                                             .where(key)
-                                            .eq(value);
+                                            .eq(convertedValue);
                                     }
                                 } catch {
                                     // Ignore filter errors for count query

@@ -12,7 +12,7 @@ describe('Pagination and Filtering Tests', () => {
 
     beforeEach(async () => {
         app = express();
-        db = new Database();
+        db = new Database({ path: ':memory:' });
         const skibba = createSkibbaExpress(app, db);
 
         // Create test schema
