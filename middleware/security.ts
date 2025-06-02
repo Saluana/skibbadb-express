@@ -45,6 +45,9 @@ const FORBIDDEN_CHARS = {
     
     // Script-related strings
     SCRIPT_SUSPICIOUS: ['javascript:', 'vbscript:', 'data:', 'file:', 'php:'],
+    
+    // Path traversal patterns
+    PATH_TRAVERSAL: ['../', '..\\', '../', '..\\\\', '/etc/', '\\windows\\', '/passwd', '/hosts'],
 };
 
 /**
@@ -132,11 +135,16 @@ function sanitizeInputWithPath(input: any, path: string[], config: SanitizationC
     if (input && typeof input === 'object') {
         const sanitized: any = {};
         for (const [key, value] of Object.entries(input)) {
-            // Only sanitize object keys if they're strings
-            const sanitizedKey = typeof key === 'string' ? sanitizeString(key) : key;
+            // Validate object keys instead of sanitizing them
+            if (typeof key === 'string') {
+                const keyValidation = validateFieldType(key, 'key');
+                if (!keyValidation.isValid) {
+                    throw new Error(`Invalid object key "${key}": ${keyValidation.reason}`);
+                }
+            }
             // Recursively process values with updated path
             const sanitizedValue = sanitizeInputWithPath(value, [...path, key], config);
-            sanitized[sanitizedKey] = sanitizedValue;
+            sanitized[key] = sanitizedValue; // Use original key, not sanitized
         }
         return sanitized;
     }
@@ -147,6 +155,7 @@ function sanitizeInputWithPath(input: any, path: string[], config: SanitizationC
 /**
  * Legacy function for backward compatibility - recursively sanitizes everything
  * @deprecated Use sanitizeInput with proper field configuration instead
+ * WARNING: This function still sanitizes keys, which can cause property name collisions
  */
 export function sanitizeInputRecursive(input: any): any {
     if (typeof input === 'string') {
@@ -160,6 +169,8 @@ export function sanitizeInputRecursive(input: any): any {
     if (input && typeof input === 'object') {
         const sanitized: any = {};
         for (const [key, value] of Object.entries(input)) {
+            // WARNING: This still sanitizes keys for backward compatibility
+            // Consider migrating to sanitizeInput() for safer key handling
             const sanitizedKey = sanitizeInputRecursive(key);
             const sanitizedValue = sanitizeInputRecursive(value);
             sanitized[sanitizedKey] = sanitizedValue;
@@ -224,6 +235,11 @@ export function validateInputSafety(input: any, context: 'general' | 'identifier
         // Check for script-suspicious strings
         if (FORBIDDEN_CHARS.SCRIPT_SUSPICIOUS.some(term => lowerInput.includes(term))) {
             return { isValid: false, reason: 'Contains script-suspicious content' };
+        }
+        
+        // Check for path traversal patterns
+        if (FORBIDDEN_CHARS.PATH_TRAVERSAL.some(term => lowerInput.includes(term))) {
+            return { isValid: false, reason: 'Contains path traversal patterns' };
         }
         
         // Context-specific validation with simple patterns
@@ -293,6 +309,14 @@ export function validateInputSafety(input: any, context: 'general' | 'identifier
  * Simple type-based validation for known field types
  */
 export function validateFieldType(value: any, fieldName: string): { isValid: boolean; reason?: string } {
+    // Special handling for object keys
+    if (fieldName === 'key') {
+        if (typeof value !== 'string') {
+            return { isValid: false, reason: 'Object keys must be strings' };
+        }
+        return validateInputSafety(value, 'identifier');
+    }
+
     // Define expected field types based on common patterns
     const fieldTypeMap: Record<string, string> = {
         'id': 'identifier',
