@@ -54,6 +54,7 @@ export type { Request, Response, RequestHandler, NextFunction } from 'express';
 // Re-export security utilities for easy access
 export {
     sanitizeInput,
+    sanitizeInputRecursive,
     sanitizeRichText,
     validateInputSafety,
     validateFieldType,
@@ -64,6 +65,9 @@ export {
     additionalSecurityHeaders,
     validateUserInput
 } from './middleware/security.js';
+
+// Re-export types for convenience
+export type { SanitizationConfig } from './middleware/security.js';
 
 export function createSkibbaExpress(
     app: express.Application,

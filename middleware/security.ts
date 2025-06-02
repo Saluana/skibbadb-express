@@ -48,34 +48,120 @@ const FORBIDDEN_CHARS = {
 };
 
 /**
- * Sanitizes input to prevent XSS attacks using lightweight xss package
- * Validates on input, expects output escaping to be handled by frontend
+ * Configuration for which fields need sanitization
+ * Only free-text fields that could contain user HTML/script content need sanitization
  */
-export function sanitizeInput(input: any): any {
+export interface SanitizationConfig {
+    // Fields that contain free-text content requiring XSS sanitization
+    freeTextFields?: string[];
+    // Fields that should only be validated but not sanitized (e.g., structured data)
+    structuredFields?: string[];
+    // Whether to sanitize all string fields by default (performance impact)
+    sanitizeAllStrings?: boolean;
+}
+
+/**
+ * Default sanitization config for common field patterns
+ */
+const DEFAULT_SANITIZATION_CONFIG: SanitizationConfig = {
+    freeTextFields: [
+        'description', 'bio', 'content', 'message', 'comment', 'note', 'text',
+        'body', 'summary', 'details', 'review', 'feedback', 'caption'
+    ],
+    structuredFields: [
+        'id', 'email', 'url', 'name', 'title', 'role', 'status', 'type',
+        'createdAt', 'updatedAt', 'age', 'count', 'price', 'phone'
+    ],
+    sanitizeAllStrings: false
+};
+
+/**
+ * Lightweight string sanitization for free-text fields only
+ */
+function sanitizeString(input: string): string {
+    // Use lightweight xss package instead of DOMPurify + JSDOM
+    let sanitized = xss(input, xssOptions);
+
+    // Additional lightweight sanitization for common attack vectors
+    sanitized = sanitized
+        .replace(/javascript:/gi, '')
+        .replace(/vbscript:/gi, '')
+        .replace(/data:/gi, '')
+        .replace(/\bon\w+\s*=/gi, ''); // Remove event handlers
+
+    return sanitized;
+}
+
+/**
+ * Optimized sanitization that only processes free-text fields
+ * Performance optimization: O(N) instead of O(N × regexes) for the entire object tree
+ */
+export function sanitizeInput(input: any, config: SanitizationConfig = DEFAULT_SANITIZATION_CONFIG): any {
+    return sanitizeInputWithPath(input, [], config);
+}
+
+/**
+ * Internal function that tracks the path to determine field types
+ */
+function sanitizeInputWithPath(input: any, path: string[], config: SanitizationConfig): any {
     if (typeof input === 'string') {
-        // Use lightweight xss package instead of DOMPurify + JSDOM
-        let sanitized = xss(input, xssOptions);
-
-        // Additional lightweight sanitization for common attack vectors
-        sanitized = sanitized
-            .replace(/javascript:/gi, '')
-            .replace(/vbscript:/gi, '')
-            .replace(/data:/gi, '')
-            .replace(/\bon\w+\s*=/gi, ''); // Remove event handlers
-
-        return sanitized;
+        const currentField = path[path.length - 1];
+        
+        // For array elements, use the parent field name for context
+        const fieldName = isNaN(Number(currentField)) ? currentField : path[path.length - 2];
+        
+        // Only sanitize if it's a known free-text field or if sanitizeAllStrings is enabled
+        const isFreeTextField = config.freeTextFields?.includes(fieldName);
+        const isStructuredField = config.structuredFields?.includes(fieldName);
+        
+        if (isFreeTextField || (config.sanitizeAllStrings && !isStructuredField)) {
+            return sanitizeString(input);
+        }
+        
+        // For structured fields, return as-is (validation happens elsewhere)
+        return input;
     }
 
     if (Array.isArray(input)) {
-        return input.map(sanitizeInput);
+        // Pass the current path so array elements inherit parent field context
+        return input.map((item, index) => 
+            sanitizeInputWithPath(item, [...path, index.toString()], config)
+        );
     }
 
     if (input && typeof input === 'object') {
         const sanitized: any = {};
         for (const [key, value] of Object.entries(input)) {
-            // Sanitize both keys and values
-            const sanitizedKey = sanitizeInput(key);
-            const sanitizedValue = sanitizeInput(value);
+            // Only sanitize object keys if they're strings
+            const sanitizedKey = typeof key === 'string' ? sanitizeString(key) : key;
+            // Recursively process values with updated path
+            const sanitizedValue = sanitizeInputWithPath(value, [...path, key], config);
+            sanitized[sanitizedKey] = sanitizedValue;
+        }
+        return sanitized;
+    }
+
+    return input;
+}
+
+/**
+ * Legacy function for backward compatibility - recursively sanitizes everything
+ * @deprecated Use sanitizeInput with proper field configuration instead
+ */
+export function sanitizeInputRecursive(input: any): any {
+    if (typeof input === 'string') {
+        return sanitizeString(input);
+    }
+
+    if (Array.isArray(input)) {
+        return input.map(sanitizeInputRecursive);
+    }
+
+    if (input && typeof input === 'object') {
+        const sanitized: any = {};
+        for (const [key, value] of Object.entries(input)) {
+            const sanitizedKey = sanitizeInputRecursive(key);
+            const sanitizedValue = sanitizeInputRecursive(value);
             sanitized[sanitizedKey] = sanitizedValue;
         }
         return sanitized;
