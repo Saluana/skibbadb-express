@@ -1,6 +1,6 @@
 {
     "name": "skibbadb-express",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Express.js integration plugin for SkibbaDB with automatic CRUD operations, pagination, filtering, and security features",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",

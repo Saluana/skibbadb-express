@@ -9,56 +9,98 @@ import type { z } from 'zod';
 import { sanitizeInput, rateLimitMiddleware, strictRateLimitMiddleware } from './middleware/security.js';
 import rateLimit from 'express-rate-limit';
 
+/**
+ * Hooks that can be configured for different HTTP methods to customize behavior
+ * before and after database operations. All hooks are optional.
+ */
 export interface MethodHooks {
     // GET hooks
+    /** Called before executing a query. Can modify the query object. */
     beforeQuery?: (query: any, req: Request) => Promise<any>;
+    /** Called after query execution. Can modify the results before returning to client. */
     afterQuery?: (results: any[], req: Request) => Promise<any[]>;
 
     // POST hooks
+    /** Called before creating a new document. Can modify or validate the data. */
     beforeCreate?: (data: any, req: Request) => Promise<any>;
+    /** Called after document creation. Can modify the result before returning to client. */
     afterCreate?: (result: any, req: Request) => Promise<any>;
 
     // PUT hooks
+    /** Called before updating a document. Can modify or validate the data. */
     beforeUpdate?: (id: string, data: any, req: Request) => Promise<any>;
+    /** Called after document update. Can modify the result before returning to client. */
     afterUpdate?: (result: any, req: Request) => Promise<any>;
 
     // DELETE hooks
+    /** Called before deleting a document. Return false to cancel the deletion. */
     beforeDelete?: (id: string, req: Request) => Promise<boolean>; // return false to cancel
+    /** Called after successful document deletion. */
     afterDelete?: (id: string, req: Request) => Promise<void>;
 }
 
+/**
+ * Configuration options for individual HTTP methods (GET, POST, PUT, DELETE)
+ */
 export interface MethodConfig {
+    /** Express middleware to apply to this specific method */
     middleware?: RequestHandler[];
+    /** Lifecycle hooks for this method */
     hooks?: MethodHooks;
+    /** Rate limiting configuration for this method */
     rateLimitOptions?: {
         windowMs?: number; // Time window in milliseconds
         max?: number; // Max requests per window
     };
+    /** Request body size limits for this method */
     uploadLimitOptions?: {
         jsonLimit?: string; // JSON body size limit (e.g., '50kb')
         urlEncodedLimit?: string; // URL-encoded body size limit
     };
 }
 
+/**
+ * Configuration for a collection's REST API endpoints.
+ * Controls which HTTP methods are enabled and their specific configurations.
+ */
 export interface CollectionConfig {
+    /** Configuration for GET endpoints (retrieve operations) */
     GET?: MethodConfig;
+    /** Configuration for POST endpoints (create operations) */
     POST?: MethodConfig;
+    /** Configuration for PUT endpoints (update operations) */
     PUT?: MethodConfig;
+    /** Configuration for DELETE endpoints (delete operations) */
     DELETE?: MethodConfig;
+    /** Base URL path for this collection. Defaults to '/{collectionName}' */
     basePath?: string;
+    /** Global middleware applied to all methods for this collection */
     middleware?: RequestHandler[]; // Global middleware for this collection
+    /** Global rate limiting for this collection */
     rateLimitOptions?: {
         windowMs?: number; // Time window in milliseconds
         max?: number; // Max requests per window
         strict?: boolean; // Whether to use strict rate limiting for write operations
     };
+    /** Global request body size limits for this collection */
     uploadLimitOptions?: {
         jsonLimit?: string; // JSON body size limit (e.g., '50kb')
         urlEncodedLimit?: string; // URL-encoded body size limit
     };
 }
 
+/**
+ * Extended Express application with SkibbaDB integration capabilities.
+ * Provides the `useCollection` method to automatically generate REST API endpoints.
+ */
 export interface SkibbaExpressApp extends express.Application {
+    /**
+     * Automatically generates REST API endpoints for a SkibbaDB collection.
+     * Creates routes for GET, POST, PUT, and DELETE operations based on configuration.
+     * 
+     * @param collection - The SkibbaDB collection to create endpoints for
+     * @param config - Optional configuration for the endpoints and middleware
+     */
     useCollection<T extends z.ZodType<any, z.ZodTypeDef, any>>(
         collection: Collection<T>,
         config?: CollectionConfig
@@ -87,6 +129,29 @@ export {
 // Re-export types for convenience
 export type { SanitizationConfig } from './middleware/security.js';
 
+/**
+ * Creates a SkibbaDB-enhanced Express application with automatic REST API generation.
+ * Adds middleware for JSON parsing, error handling, and security measures.
+ * 
+ * @param app - Express application instance
+ * @param database - SkibbaDB database instance (currently unused but kept for future features)
+ * @param globalOptions - Global configuration options
+ * @param globalOptions.uploadLimitOptions - Default request body size limits
+ * @returns Enhanced Express app with `useCollection` method
+ * 
+ * @example
+ * ```typescript
+ * const app = express();
+ * const database = new Database('./data');
+ * const skibbaApp = createSkibbaExpress(app, database);
+ * 
+ * // Auto-generate REST endpoints for a collection
+ * skibbaApp.useCollection(usersCollection, {
+ *   GET: { middleware: [authMiddleware] },
+ *   POST: { hooks: { beforeCreate: validateUser } }
+ * });
+ * ```
+ */
 export function createSkibbaExpress(
     app: express.Application,
     database: Database,
@@ -124,7 +189,10 @@ export function createSkibbaExpress(
         next(err);
     });
 
-    // Helper function to create custom rate limiter
+    /**
+     * Creates a rate limiter middleware with specified options.
+     * Used for general API rate limiting.
+     */
     function createRateLimiter(options: CollectionConfig['rateLimitOptions'] = {}) {
         const windowMs = options.windowMs || 15 * 60 * 1000; // 15 minutes default
         const max = options.max || 100; // 100 requests default
@@ -148,7 +216,10 @@ export function createSkibbaExpress(
         });
     }
 
-    // Helper function to create strict rate limiter for write operations
+    /**
+     * Creates a stricter rate limiter specifically for write operations (POST, PUT, DELETE).
+     * Has lower limits than the general rate limiter to prevent abuse.
+     */
     function createStrictRateLimiter(options: CollectionConfig['rateLimitOptions'] = {}) {
         const windowMs = options.windowMs || 15 * 60 * 1000; // 15 minutes default
         const max = options.max || 30; // 30 requests default for write operations
@@ -173,7 +244,10 @@ export function createSkibbaExpress(
         });
     }
 
-    // Helper function to create upload size middleware
+    /**
+     * Creates middleware to enforce request body size limits for JSON and URL-encoded data.
+     * Helps prevent memory exhaustion attacks and large payload abuse.
+     */
     function createUploadSizeMiddleware(options: CollectionConfig['uploadLimitOptions'] = {}) {
         const jsonLimit = options.jsonLimit || '50kb';
         const urlEncodedLimit = options.urlEncodedLimit || '50kb';
@@ -184,7 +258,10 @@ export function createSkibbaExpress(
         ];
     }
 
-    // Helper function to apply method-specific configurations
+    /**
+     * Applies method-specific middleware configuration including custom upload limits,
+     * rate limiting, and user-defined middleware in the correct order.
+     */
     function applyMethodMiddleware(methodConfig: MethodConfig): RequestHandler[] {
         const middlewares: RequestHandler[] = [];
         
@@ -301,7 +378,11 @@ export function createSkibbaExpress(
                 ...middleware,
                 async (req: Request, res: Response, next: NextFunction) => {
                     try {
-                        // Helper to validate field names against schema
+                        /**
+                         * Validates if a field name exists in the collection's Zod schema.
+                         * Supports nested field access with dot notation.
+                         * Used to prevent injection attacks through invalid field names.
+                         */
                         function isValidField(field: string): boolean {
                             if (field.includes('.')) return true; // allow nested fields
                             const schema = (collection as any).collectionSchema
@@ -347,7 +428,17 @@ export function createSkibbaExpress(
                         const sanitizedQuery = { ...req.query };
                         (req as any).sanitizedQuery = sanitizedQuery;
 
-                        // Helper function to validate and parse unsigned integers
+                        /**
+                         * Safely parses and validates unsigned integer parameters from query strings.
+                         * Prevents injection attacks and ensures values are within acceptable ranges.
+                         * 
+                         * @param value - The string value to parse
+                         * @param paramName - Name of the parameter (for error messages)
+                         * @param min - Minimum allowed value
+                         * @param max - Maximum allowed value (optional)
+                         * @returns Parsed integer or undefined if value is empty
+                         * @throws Error if value is invalid or out of range
+                         */
                         function parseUnsignedInt(value: string | undefined, paramName: string, min: number = 0, max?: number): number | undefined {
                             if (value === undefined || value === '') return undefined;
                             
@@ -786,7 +877,10 @@ export function createSkibbaExpress(
                         }
 
 
-                        // Prevent prototype pollution by checking for dangerous keys
+                        /**
+                         * Security check to prevent prototype pollution attacks.
+                         * Recursively scans object for dangerous keys that could modify prototypes.
+                         */
                         const dangerousKeys = [
                             '__proto__',
                             'constructor',
@@ -948,7 +1042,10 @@ export function createSkibbaExpress(
                         }
 
 
-                        // Prevent prototype pollution
+                        /**
+                         * Security check to prevent prototype pollution attacks.
+                         * Recursively scans object for dangerous keys that could modify prototypes.
+                         */
                         const dangerousKeys = [
                             '__proto__',
                             'constructor',
