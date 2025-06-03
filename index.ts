@@ -394,6 +394,7 @@ export function createSkibbaExpress(
                             '_lte',
                             '_like',
                             '_in',
+                            '_contains',
                         ];
                         const suf = suffixes.find((s) => rawKey.endsWith(s));
                         const field = suf
@@ -506,10 +507,9 @@ export function createSkibbaExpress(
                                 );
                             }
                         } else if (suf === '_contains') {
-                            // New _contains operator specifically for array fields
-                            preds.push((q) =>
-                                q.where(field).like(`%"${vNorm}"%`)
-                            );
+                            // _contains operator for array fields - use arrayContains method
+                            // Use the original string value, not the normalized one
+                            preds.push((q) => q.where(field).arrayContains(value));
                         } else if (suf === '_gt') {
                             preds.push((q) => q.where(field).gt(vNorm));
                         } else if (suf === '_gte') {
