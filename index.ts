@@ -6,7 +6,11 @@ import express, {
 } from 'express';
 import { Database, Collection } from 'skibbadb';
 import type { z } from 'zod';
-import { sanitizeInput, rateLimitMiddleware, strictRateLimitMiddleware } from './middleware/security.js';
+import {
+    sanitizeInput,
+    rateLimitMiddleware,
+    strictRateLimitMiddleware,
+} from './middleware/security.js';
 import rateLimit from 'express-rate-limit';
 
 /**
@@ -97,7 +101,7 @@ export interface SkibbaExpressApp extends express.Application {
     /**
      * Automatically generates REST API endpoints for a SkibbaDB collection.
      * Creates routes for GET, POST, PUT, and DELETE operations based on configuration.
-     * 
+     *
      * @param collection - The SkibbaDB collection to create endpoints for
      * @param config - Optional configuration for the endpoints and middleware
      */
@@ -116,14 +120,14 @@ export {
     sanitizeInput,
     sanitizeInputRecursive,
     sanitizeRichText,
-    validateInputSafety,
-    validateFieldType,
+    validateSecurityThreats,
+    validateObjectKey,
     securityMiddleware,
     rateLimitMiddleware,
     strictRateLimitMiddleware,
     helmetMiddleware,
     additionalSecurityHeaders,
-    validateUserInput
+    validateUserInput,
 } from './middleware/security.js';
 
 // Re-export types for convenience
@@ -132,19 +136,19 @@ export type { SanitizationConfig } from './middleware/security.js';
 /**
  * Creates a SkibbaDB-enhanced Express application with automatic REST API generation.
  * Adds middleware for JSON parsing, error handling, and security measures.
- * 
+ *
  * @param app - Express application instance
  * @param database - SkibbaDB database instance (currently unused but kept for future features)
  * @param globalOptions - Global configuration options
  * @param globalOptions.uploadLimitOptions - Default request body size limits
  * @returns Enhanced Express app with `useCollection` method
- * 
+ *
  * @example
  * ```typescript
  * const app = express();
  * const database = new Database('./data');
  * const skibbaApp = createSkibbaExpress(app, database);
- * 
+ *
  * // Auto-generate REST endpoints for a collection
  * skibbaApp.useCollection(usersCollection, {
  *   GET: { middleware: [authMiddleware] },
@@ -165,8 +169,9 @@ export function createSkibbaExpress(
     // Default middleware with built-in error handling and request size limits
     // Use 50kb as default to match security middleware
     const jsonLimit = globalOptions?.uploadLimitOptions?.jsonLimit || '50kb';
-    const urlEncodedLimit = globalOptions?.uploadLimitOptions?.urlEncodedLimit || '50kb';
-    
+    const urlEncodedLimit =
+        globalOptions?.uploadLimitOptions?.urlEncodedLimit || '50kb';
+
     app.use(express.json({ limit: jsonLimit }));
     app.use(express.urlencoded({ extended: true, limit: urlEncodedLimit }));
 
@@ -193,10 +198,12 @@ export function createSkibbaExpress(
      * Creates a rate limiter middleware with specified options.
      * Used for general API rate limiting.
      */
-    function createRateLimiter(options: CollectionConfig['rateLimitOptions'] = {}) {
+    function createRateLimiter(
+        options: CollectionConfig['rateLimitOptions'] = {}
+    ) {
         const windowMs = options.windowMs || 15 * 60 * 1000; // 15 minutes default
         const max = options.max || 100; // 100 requests default
-        
+
         return rateLimit({
             windowMs,
             max,
@@ -220,25 +227,31 @@ export function createSkibbaExpress(
      * Creates a stricter rate limiter specifically for write operations (POST, PUT, DELETE).
      * Has lower limits than the general rate limiter to prevent abuse.
      */
-    function createStrictRateLimiter(options: CollectionConfig['rateLimitOptions'] = {}) {
+    function createStrictRateLimiter(
+        options: CollectionConfig['rateLimitOptions'] = {}
+    ) {
         const windowMs = options.windowMs || 15 * 60 * 1000; // 15 minutes default
         const max = options.max || 30; // 30 requests default for write operations
-        
+
         return rateLimit({
             windowMs,
             max,
             message: {
                 error: 'Too many requests',
-                message: 'Write operation rate limit exceeded. Please try again later.',
+                message:
+                    'Write operation rate limit exceeded. Please try again later.',
             },
             standardHeaders: true,
             legacyHeaders: false,
             skip: (req) => req.method === 'GET', // Only apply to write operations
             handler: (req, res) => {
-                console.warn(`🚨 Strict write operation rate limit exceeded for ${req.ip}`);
+                console.warn(
+                    `🚨 Strict write operation rate limit exceeded for ${req.ip}`
+                );
                 res.status(429).json({
                     error: 'Too many requests',
-                    message: 'Write operation rate limit exceeded. Please try again later.',
+                    message:
+                        'Write operation rate limit exceeded. Please try again later.',
                 });
             },
         });
@@ -248,29 +261,35 @@ export function createSkibbaExpress(
      * Creates middleware to enforce request body size limits for JSON and URL-encoded data.
      * Helps prevent memory exhaustion attacks and large payload abuse.
      */
-    function createUploadSizeMiddleware(options: CollectionConfig['uploadLimitOptions'] = {}) {
+    function createUploadSizeMiddleware(
+        options: CollectionConfig['uploadLimitOptions'] = {}
+    ) {
         const jsonLimit = options.jsonLimit || '50kb';
         const urlEncodedLimit = options.urlEncodedLimit || '50kb';
-        
+
         // Convert size strings to bytes for comparison
         const parseSize = (sizeStr: string): number => {
             const match = sizeStr.match(/^(\d+(?:\.\d+)?)(kb|mb|gb)?$/i);
             if (!match) return 50 * 1024; // Default 50KB
-            
+
             const num = parseFloat(match[1]);
             const unit = (match[2] || '').toLowerCase();
-            
+
             switch (unit) {
-                case 'gb': return num * 1024 * 1024 * 1024;
-                case 'mb': return num * 1024 * 1024;
-                case 'kb': return num * 1024;
-                default: return num; // Assume bytes
+                case 'gb':
+                    return num * 1024 * 1024 * 1024;
+                case 'mb':
+                    return num * 1024 * 1024;
+                case 'kb':
+                    return num * 1024;
+                default:
+                    return num; // Assume bytes
             }
         };
-        
+
         const jsonLimitBytes = parseSize(jsonLimit);
         const urlEncodedLimitBytes = parseSize(urlEncodedLimit);
-        
+
         return [
             // Check Content-Length header before any parsing occurs
             (req: Request, res: Response, next: NextFunction) => {
@@ -278,18 +297,30 @@ export function createSkibbaExpress(
                 if (contentLength) {
                     const size = parseInt(contentLength, 10);
                     const contentType = req.get('Content-Type') || '';
-                    
-                    if (contentType.includes('application/json') && size > jsonLimitBytes) {
-                        console.log(`🚨 Upload size middleware rejecting ${size} bytes (limit: ${jsonLimitBytes} for ${jsonLimit})`);
+
+                    if (
+                        contentType.includes('application/json') &&
+                        size > jsonLimitBytes
+                    ) {
+                        console.log(
+                            `🚨 Upload size middleware rejecting ${size} bytes (limit: ${jsonLimitBytes} for ${jsonLimit})`
+                        );
                         res.status(413).json({
                             error: 'Payload too large',
                             message: 'Request body exceeds size limit',
                         });
                         return;
                     }
-                    
-                    if (contentType.includes('application/x-www-form-urlencoded') && size > urlEncodedLimitBytes) {
-                        console.log(`🚨 Upload size middleware rejecting ${size} bytes (limit: ${urlEncodedLimitBytes} for ${urlEncodedLimit})`);
+
+                    if (
+                        contentType.includes(
+                            'application/x-www-form-urlencoded'
+                        ) &&
+                        size > urlEncodedLimitBytes
+                    ) {
+                        console.log(
+                            `🚨 Upload size middleware rejecting ${size} bytes (limit: ${urlEncodedLimitBytes} for ${urlEncodedLimit})`
+                        );
                         res.status(413).json({
                             error: 'Payload too large',
                             message: 'Request body exceeds size limit',
@@ -297,10 +328,12 @@ export function createSkibbaExpress(
                         return;
                     }
                 } else {
-                    console.log(`📝 No Content-Length header, limits: ${jsonLimit}`);
+                    console.log(
+                        `📝 No Content-Length header, limits: ${jsonLimit}`
+                    );
                 }
                 next();
-            }
+            },
         ];
     }
 
@@ -308,25 +341,31 @@ export function createSkibbaExpress(
      * Applies method-specific middleware configuration including custom upload limits,
      * rate limiting, and user-defined middleware in the correct order.
      */
-    function applyMethodMiddleware(methodConfig: MethodConfig): RequestHandler[] {
+    function applyMethodMiddleware(
+        methodConfig: MethodConfig
+    ): RequestHandler[] {
         const middlewares: RequestHandler[] = [];
-        
+
         // Add custom upload size limits if specified
         if (methodConfig.uploadLimitOptions) {
-            middlewares.push(...createUploadSizeMiddleware(methodConfig.uploadLimitOptions));
+            middlewares.push(
+                ...createUploadSizeMiddleware(methodConfig.uploadLimitOptions)
+            );
         }
-        
+
         // Add custom rate limiting if specified
         if (methodConfig.rateLimitOptions) {
-            const customRateLimit = createRateLimiter(methodConfig.rateLimitOptions);
+            const customRateLimit = createRateLimiter(
+                methodConfig.rateLimitOptions
+            );
             middlewares.push(customRateLimit);
         }
-        
+
         // Add method-specific middleware
         if (methodConfig.middleware) {
             middlewares.push(...methodConfig.middleware);
         }
-        
+
         return middlewares;
     }
 
@@ -345,8 +384,14 @@ export function createSkibbaExpress(
 
         // Apply upload size limits (custom or default) BEFORE rate limiting
         // Collections without custom limits should use the default 50KB limit
-        console.log(`🔧 Collection ${basePath} upload config:`, config.uploadLimitOptions);
-        const uploadLimits = config.uploadLimitOptions || { jsonLimit: '50kb', urlEncodedLimit: '50kb' };
+        console.log(
+            `🔧 Collection ${basePath} upload config:`,
+            config.uploadLimitOptions
+        );
+        const uploadLimits = config.uploadLimitOptions || {
+            jsonLimit: '50kb',
+            urlEncodedLimit: '50kb',
+        };
         console.log(`🔧 Using upload limits for ${basePath}:`, uploadLimits);
         router.use(...createUploadSizeMiddleware(uploadLimits));
 
@@ -354,10 +399,12 @@ export function createSkibbaExpress(
         if (config.rateLimitOptions) {
             const customRateLimit = createRateLimiter(config.rateLimitOptions);
             router.use(customRateLimit);
-            
+
             // Apply strict rate limiting for write operations if enabled
             if (config.rateLimitOptions.strict) {
-                const customStrictRateLimit = createStrictRateLimiter(config.rateLimitOptions);
+                const customStrictRateLimit = createStrictRateLimiter(
+                    config.rateLimitOptions
+                );
                 router.use(customStrictRateLimit);
             }
         }
@@ -466,7 +513,6 @@ export function createSkibbaExpress(
                                 }
                             }
 
-
                             return validFields.includes(field);
                         }
 
@@ -479,7 +525,7 @@ export function createSkibbaExpress(
                         /**
                          * Safely parses and validates unsigned integer parameters from query strings.
                          * Prevents injection attacks and ensures values are within acceptable ranges.
-                         * 
+                         *
                          * @param value - The string value to parse
                          * @param paramName - Name of the parameter (for error messages)
                          * @param min - Minimum allowed value
@@ -487,30 +533,44 @@ export function createSkibbaExpress(
                          * @returns Parsed integer or undefined if value is empty
                          * @throws Error if value is invalid or out of range
                          */
-                        function parseUnsignedInt(value: string | undefined, paramName: string, min: number = 0, max?: number): number | undefined {
-                            if (value === undefined || value === '') return undefined;
-                            
+                        function parseUnsignedInt(
+                            value: string | undefined,
+                            paramName: string,
+                            min: number = 0,
+                            max?: number
+                        ): number | undefined {
+                            if (value === undefined || value === '')
+                                return undefined;
+
                             // Check if value contains only digits (and optional leading/trailing whitespace)
                             const trimmedValue = value.toString().trim();
                             if (!/^\d+$/.test(trimmedValue)) {
-                                throw new Error(`${paramName} must be a valid unsigned integer`);
+                                throw new Error(
+                                    `${paramName} must be a valid unsigned integer`
+                                );
                             }
-                            
+
                             const parsed = parseInt(trimmedValue, 10);
-                            
+
                             // Additional safety check for NaN (though regex should prevent this)
                             if (isNaN(parsed)) {
-                                throw new Error(`${paramName} must be a valid unsigned integer`);
+                                throw new Error(
+                                    `${paramName} must be a valid unsigned integer`
+                                );
                             }
-                            
+
                             if (parsed < min) {
-                                throw new Error(`${paramName} must be at least ${min}`);
+                                throw new Error(
+                                    `${paramName} must be at least ${min}`
+                                );
                             }
-                            
+
                             if (max !== undefined && parsed > max) {
-                                throw new Error(`${paramName} must not exceed ${max}`);
+                                throw new Error(
+                                    `${paramName} must not exceed ${max}`
+                                );
                             }
-                            
+
                             return parsed;
                         }
 
@@ -520,9 +580,22 @@ export function createSkibbaExpress(
                         let offset: number | undefined;
 
                         try {
-                            page = parseUnsignedInt(sanitizedQuery.page as string, 'Page', 1);
-                            limit = parseUnsignedInt(sanitizedQuery.limit as string, 'Limit', 1, 1000);
-                            offset = parseUnsignedInt(sanitizedQuery.offset as string, 'Offset', 0);
+                            page = parseUnsignedInt(
+                                sanitizedQuery.page as string,
+                                'Page',
+                                1
+                            );
+                            limit = parseUnsignedInt(
+                                sanitizedQuery.limit as string,
+                                'Limit',
+                                1,
+                                1000
+                            );
+                            offset = parseUnsignedInt(
+                                sanitizedQuery.offset as string,
+                                'Offset',
+                                0
+                            );
                         } catch (error: any) {
                             res.status(400).json({
                                 error: 'Invalid pagination parameter',
@@ -557,7 +630,9 @@ export function createSkibbaExpress(
                         ]);
 
                         // Validate filter fields before applying
-                        for (const [key, value] of Object.entries(sanitizedQuery)) {
+                        for (const [key, value] of Object.entries(
+                            sanitizedQuery
+                        )) {
                             if (
                                 excludedParams.has(key) ||
                                 value === undefined ||
@@ -605,7 +680,9 @@ export function createSkibbaExpress(
                         // ]);
 
                         // Validate filter fields before applying
-                        for (const [key, value] of Object.entries(sanitizedQuery)) {
+                        for (const [key, value] of Object.entries(
+                            sanitizedQuery
+                        )) {
                             if (
                                 excludedParams.has(key) ||
                                 value === undefined ||
@@ -671,9 +748,13 @@ export function createSkibbaExpress(
                                         convertedValue = true;
                                     } else if (value === 'false') {
                                         convertedValue = false;
-                                    } else if (!isNaN(Number(value as string))) {
+                                    } else if (
+                                        !isNaN(Number(value as string))
+                                    ) {
                                         // Convert numeric strings to numbers for proper comparison
-                                        convertedValue = Number(value as string);
+                                        convertedValue = Number(
+                                            value as string
+                                        );
                                     }
                                     query = query.where(key).eq(convertedValue);
                                 }
@@ -852,8 +933,12 @@ export function createSkibbaExpress(
                                             convertedValue = true;
                                         } else if (value === 'false') {
                                             convertedValue = false;
-                                        } else if (!isNaN(Number(value as string))) {
-                                            convertedValue = Number(value as string);
+                                        } else if (
+                                            !isNaN(Number(value as string))
+                                        ) {
+                                            convertedValue = Number(
+                                                value as string
+                                            );
                                         }
                                         countQuery = countQuery
                                             .where(key)
@@ -923,7 +1008,6 @@ export function createSkibbaExpress(
                             });
                             return;
                         }
-
 
                         /**
                          * Security check to prevent prototype pollution attacks.
@@ -1088,7 +1172,6 @@ export function createSkibbaExpress(
                             });
                             return;
                         }
-
 
                         /**
                          * Security check to prevent prototype pollution attacks.

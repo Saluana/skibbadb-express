@@ -176,3 +176,7 @@ dist
 
 # Finder (MacOS) folder config
 .DS_Store
+
+test-data
+test-data-shm
+test-data-wal
