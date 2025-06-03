@@ -462,26 +462,42 @@ export function createSkibbaExpress(
                                     .schema;
                                 if ('shape' in s && s.shape[field]) {
                                     const fieldSchema = s.shape[field];
+                                    // Check for ZodArray or ZodDefault wrapping a ZodArray
                                     isArrayField =
                                         fieldSchema._def?.typeName ===
-                                        'ZodArray';
+                                            'ZodArray' ||
+                                        (fieldSchema._def?.typeName ===
+                                            'ZodDefault' &&
+                                            fieldSchema._def?.innerType?._def
+                                                ?.typeName === 'ZodArray');
                                 } else if (
                                     s._def?.shape &&
                                     s._def.shape[field]
                                 ) {
                                     const fieldSchema = s._def.shape[field];
+                                    // Check for ZodArray or ZodDefault wrapping a ZodArray
                                     isArrayField =
                                         fieldSchema._def?.typeName ===
-                                        'ZodArray';
+                                            'ZodArray' ||
+                                        (fieldSchema._def?.typeName ===
+                                            'ZodDefault' &&
+                                            fieldSchema._def?.innerType?._def
+                                                ?.typeName === 'ZodArray');
                                 } else if (
                                     typeof s._def?.shape === 'function'
                                 ) {
                                     const shapeObj = s._def.shape();
                                     if (shapeObj[field]) {
                                         const fieldSchema = shapeObj[field];
+                                        // Check for ZodArray or ZodDefault wrapping a ZodArray
                                         isArrayField =
                                             fieldSchema._def?.typeName ===
-                                            'ZodArray';
+                                                'ZodArray' ||
+                                            (fieldSchema._def?.typeName ===
+                                                'ZodDefault' &&
+                                                fieldSchema._def?.innerType
+                                                    ?._def?.typeName ===
+                                                    'ZodArray');
                                     }
                                 }
                             } catch (e) {
@@ -509,7 +525,9 @@ export function createSkibbaExpress(
                         } else if (suf === '_contains') {
                             // _contains operator for array fields - use arrayContains method
                             // Use the original string value, not the normalized one
-                            preds.push((q) => q.where(field).arrayContains(value));
+                            preds.push((q) =>
+                                q.where(field).arrayContains(value)
+                            );
                         } else if (suf === '_gt') {
                             preds.push((q) => q.where(field).gt(vNorm));
                         } else if (suf === '_gte') {

@@ -1,6 +1,6 @@
 {
     "name": "skibbadb-express",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "description": "Express.js integration plugin for SkibbaDB with automatic CRUD operations, pagination, filtering, and security features",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -21,16 +21,16 @@
         "filtering",
         "rest"
     ],
-    "author": "Your Name",
+    "author": "Saluana",
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/yourusername/skibbadb-express.git"
+        "url": "https://github.com/saluana/skibbadb-express.git"
     },
     "bugs": {
-        "url": "https://github.com/yourusername/skibbadb-express/issues"
+        "url": "https://github.com/saluana/skibbadb-express/issues"
     },
-    "homepage": "https://github.com/yourusername/skibbadb-express#readme",
+    "homepage": "https://github.com/saluana/skibbadb-express#readme",
     "scripts": {
         "build": "tsc",
         "dev": "tsc --watch",
