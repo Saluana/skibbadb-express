@@ -6,7 +6,8 @@ import express, {
 } from 'express';
 import { Database, Collection } from 'skibbadb';
 import type { z } from 'zod';
-import { sanitizeInput } from './middleware/security.js';
+import { sanitizeInput, rateLimitMiddleware, strictRateLimitMiddleware } from './middleware/security.js';
+import rateLimit from 'express-rate-limit';
 
 export interface MethodHooks {
     // GET hooks
@@ -29,6 +30,14 @@ export interface MethodHooks {
 export interface MethodConfig {
     middleware?: RequestHandler[];
     hooks?: MethodHooks;
+    rateLimitOptions?: {
+        windowMs?: number; // Time window in milliseconds
+        max?: number; // Max requests per window
+    };
+    uploadLimitOptions?: {
+        jsonLimit?: string; // JSON body size limit (e.g., '50kb')
+        urlEncodedLimit?: string; // URL-encoded body size limit
+    };
 }
 
 export interface CollectionConfig {
@@ -38,6 +47,15 @@ export interface CollectionConfig {
     DELETE?: MethodConfig;
     basePath?: string;
     middleware?: RequestHandler[]; // Global middleware for this collection
+    rateLimitOptions?: {
+        windowMs?: number; // Time window in milliseconds
+        max?: number; // Max requests per window
+        strict?: boolean; // Whether to use strict rate limiting for write operations
+    };
+    uploadLimitOptions?: {
+        jsonLimit?: string; // JSON body size limit (e.g., '50kb')
+        urlEncodedLimit?: string; // URL-encoded body size limit
+    };
 }
 
 export interface SkibbaExpressApp extends express.Application {
@@ -71,11 +89,21 @@ export type { SanitizationConfig } from './middleware/security.js';
 
 export function createSkibbaExpress(
     app: express.Application,
-    database: Database
+    database: Database,
+    globalOptions?: {
+        uploadLimitOptions?: {
+            jsonLimit?: string;
+            urlEncodedLimit?: string;
+        };
+    }
 ): SkibbaExpressApp {
     // Default middleware with built-in error handling and request size limits
-    app.use(express.json({ limit: '10kb' }));
-    app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+    // Use 50kb as default to match security middleware
+    const jsonLimit = globalOptions?.uploadLimitOptions?.jsonLimit || '50kb';
+    const urlEncodedLimit = globalOptions?.uploadLimitOptions?.urlEncodedLimit || '50kb';
+    
+    app.use(express.json({ limit: jsonLimit }));
+    app.use(express.urlencoded({ extended: true, limit: urlEncodedLimit }));
 
     // JSON parsing error handler for malformed JSON and size limits
     app.use((err: any, req: Request, res: Response, next: NextFunction) => {
@@ -96,6 +124,89 @@ export function createSkibbaExpress(
         next(err);
     });
 
+    // Helper function to create custom rate limiter
+    function createRateLimiter(options: CollectionConfig['rateLimitOptions'] = {}) {
+        const windowMs = options.windowMs || 15 * 60 * 1000; // 15 minutes default
+        const max = options.max || 100; // 100 requests default
+        
+        return rateLimit({
+            windowMs,
+            max,
+            message: {
+                error: 'Too many requests',
+                message: 'Rate limit exceeded. Please try again later.',
+            },
+            standardHeaders: true,
+            legacyHeaders: false,
+            handler: (req, res) => {
+                console.warn(`🚨 Rate limit exceeded for ${req.ip}`);
+                res.status(429).json({
+                    error: 'Too many requests',
+                    message: 'Rate limit exceeded. Please try again later.',
+                });
+            },
+        });
+    }
+
+    // Helper function to create strict rate limiter for write operations
+    function createStrictRateLimiter(options: CollectionConfig['rateLimitOptions'] = {}) {
+        const windowMs = options.windowMs || 15 * 60 * 1000; // 15 minutes default
+        const max = options.max || 30; // 30 requests default for write operations
+        
+        return rateLimit({
+            windowMs,
+            max,
+            message: {
+                error: 'Too many requests',
+                message: 'Write operation rate limit exceeded. Please try again later.',
+            },
+            standardHeaders: true,
+            legacyHeaders: false,
+            skip: (req) => req.method === 'GET', // Only apply to write operations
+            handler: (req, res) => {
+                console.warn(`🚨 Write operation rate limit exceeded for ${req.ip}`);
+                res.status(429).json({
+                    error: 'Too many requests',
+                    message: 'Write operation rate limit exceeded. Please try again later.',
+                });
+            },
+        });
+    }
+
+    // Helper function to create upload size middleware
+    function createUploadSizeMiddleware(options: CollectionConfig['uploadLimitOptions'] = {}) {
+        const jsonLimit = options.jsonLimit || '50kb';
+        const urlEncodedLimit = options.urlEncodedLimit || '50kb';
+        
+        return [
+            express.json({ limit: jsonLimit }),
+            express.urlencoded({ extended: true, limit: urlEncodedLimit })
+        ];
+    }
+
+    // Helper function to apply method-specific configurations
+    function applyMethodMiddleware(methodConfig: MethodConfig): RequestHandler[] {
+        const middlewares: RequestHandler[] = [];
+        
+        // Add custom upload size limits if specified
+        if (methodConfig.uploadLimitOptions) {
+            middlewares.push(...createUploadSizeMiddleware(methodConfig.uploadLimitOptions));
+        }
+        
+        // Add custom rate limiting if specified
+        if (methodConfig.rateLimitOptions) {
+            const customRateLimit = createRateLimiter(methodConfig.rateLimitOptions);
+            middlewares.push(customRateLimit);
+        }
+        
+        // Add method-specific middleware
+        if (methodConfig.middleware) {
+            middlewares.push(...methodConfig.middleware);
+        }
+        
+        return middlewares;
+    }
+
     // Add the useCollection method to the app
     (app as any).useCollection = function <
         T extends z.ZodType<any, z.ZodTypeDef, any>
@@ -109,9 +220,26 @@ export function createSkibbaExpress(
             router.use(...config.middleware);
         }
 
+        // Apply custom upload size limits if specified
+        if (config.uploadLimitOptions) {
+            router.use(...createUploadSizeMiddleware(config.uploadLimitOptions));
+        }
+
+        // Apply custom rate limiting if specified
+        if (config.rateLimitOptions) {
+            const customRateLimit = createRateLimiter(config.rateLimitOptions);
+            router.use(customRateLimit);
+            
+            // Apply strict rate limiting for write operations if enabled
+            if (config.rateLimitOptions.strict) {
+                const customStrictRateLimit = createStrictRateLimiter(config.rateLimitOptions);
+                router.use(customStrictRateLimit);
+            }
+        }
+
         // GET /:id - Get single item
         if (config.GET) {
-            const middleware = config.GET.middleware || [];
+            const middleware = applyMethodMiddleware(config.GET);
             router.get(
                 '/:id',
                 ...middleware,
@@ -635,7 +763,7 @@ export function createSkibbaExpress(
 
         // POST / - Create new item
         if (config.POST) {
-            const middleware = config.POST.middleware || [];
+            const middleware = applyMethodMiddleware(config.POST);
             router.post(
                 '/',
                 ...middleware,
@@ -783,7 +911,7 @@ export function createSkibbaExpress(
 
         // PUT /:id - Update item
         if (config.PUT) {
-            const middleware = config.PUT.middleware || [];
+            const middleware = applyMethodMiddleware(config.PUT);
             router.put(
                 '/:id',
                 ...middleware,
@@ -946,7 +1074,7 @@ export function createSkibbaExpress(
 
         // DELETE /:id - Delete item
         if (config.DELETE) {
-            const middleware = config.DELETE.middleware || [];
+            const middleware = applyMethodMiddleware(config.DELETE);
             router.delete(
                 '/:id',
                 ...middleware,

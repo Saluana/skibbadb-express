@@ -49,7 +49,7 @@ skibba.useCollection(users, {
 
     POST: {
         middleware: [
-            securityMiddleware,
+            securityMiddleware(),
             strictRateLimitMiddleware,
             validateUserInput,
         ],
@@ -69,7 +69,7 @@ skibba.useCollection(users, {
 
     PUT: {
         middleware: [
-            securityMiddleware,
+            securityMiddleware(),
             strictRateLimitMiddleware,
             validateUserInput,
         ],

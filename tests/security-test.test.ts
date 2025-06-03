@@ -60,10 +60,10 @@ app.get('/health', (req, res) => {
 // Configure users collection with security middleware
 skibba.useCollection(users, {
     GET: {
-        middleware: [securityMiddleware],
+        middleware: [securityMiddleware()],
     },
     POST: {
-        middleware: [securityMiddleware],
+        middleware: [securityMiddleware()],
         hooks: {
             beforeCreate: async (data, req) => ({
                 ...data,
@@ -72,7 +72,7 @@ skibba.useCollection(users, {
         },
     },
     PUT: {
-        middleware: [securityMiddleware],
+        middleware: [securityMiddleware()],
         hooks: {
             beforeUpdate: async (id, data, req) => ({
                 ...data,

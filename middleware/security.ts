@@ -350,20 +350,24 @@ export function validateFieldType(value: any, fieldName: string): { isValid: boo
  * - Frontend must still handle output escaping
  * - No heavy DOM construction per request
  */
-export const securityMiddleware = (
+export const securityMiddleware = (options?: {
+    maxBodySize?: number; // Max body size in bytes (default: 50KB)
+    maxQuerySize?: number; // Max query size in bytes (default: 10KB)
+}) => (
     req: Request,
     res: Response,
     next: NextFunction
 ): void => {
+    const maxBodySize = options?.maxBodySize || 50000; // 50KB default
+    const maxQuerySize = options?.maxQuerySize || 10000; // 10KB default
     try {
         // Check input size limits first - reject large inputs rather than truncate
         const requestBody = JSON.stringify(req.body || {});
         const requestQuery = JSON.stringify(req.query || {});
 
-        if (requestBody.length > 50000) {
-            // 50KB limit for request body
+        if (requestBody.length > maxBodySize) {
             console.warn(
-                `🚨 Large request body rejected from ${req.ip}: ${requestBody.length} bytes`
+                `🚨 Large request body rejected from ${req.ip}: ${requestBody.length} bytes (limit: ${maxBodySize})`
             );
             res.status(413).json({
                 error: 'Request too large',
@@ -372,10 +376,9 @@ export const securityMiddleware = (
             return;
         }
 
-        if (requestQuery.length > 10000) {
-            // 10KB limit for query params
+        if (requestQuery.length > maxQuerySize) {
             console.warn(
-                `🚨 Large query parameters rejected from ${req.ip}: ${requestQuery.length} bytes`
+                `🚨 Large query parameters rejected from ${req.ip}: ${requestQuery.length} bytes (limit: ${maxQuerySize})`
             );
             res.status(413).json({
                 error: 'Request too large',
