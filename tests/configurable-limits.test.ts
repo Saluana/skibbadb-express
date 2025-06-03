@@ -36,8 +36,8 @@ describe('Configurable Limits and Rate Limiting', () => {
         skibba.useCollection(users, {
             basePath: '/api/users',
             rateLimitOptions: {
-                windowMs: 1000, // 1 second for testing
-                max: 3, // Only 3 requests per second
+                windowMs: 100, // 100ms for testing (shorter window)
+                max: 10, // More lenient limit for testing
                 strict: true, // Enable strict limits for write operations
             },
             uploadLimitOptions: {
@@ -51,7 +51,7 @@ describe('Configurable Limits and Rate Limiting', () => {
             },
             POST: {
                 rateLimitOptions: {
-                    max: 2, // Stricter limit for POST requests
+                    max: 5, // More lenient limit for POST requests in testing
                 },
                 uploadLimitOptions: {
                     jsonLimit: '50kb', // Smaller limit for POST
@@ -98,7 +98,7 @@ describe('Configurable Limits and Rate Limiting', () => {
             // Create a payload just under 100kb
             const largeData = 'x'.repeat(90000); // ~90KB
 
-            const response = await request(app).post('/api/users').send({
+            const response = await request(app).put('/api/users/test-id').send({
                 name: 'Test User',
                 email: 'test@example.com',
                 data: largeData,

@@ -207,7 +207,7 @@ export function createSkibbaExpress(
             standardHeaders: true,
             legacyHeaders: false,
             handler: (req, res) => {
-                console.warn(`🚨 Rate limit exceeded for ${req.ip}`);
+                console.warn(`🚨 Collection rate limit exceeded for ${req.ip}`);
                 res.status(429).json({
                     error: 'Too many requests',
                     message: 'Rate limit exceeded. Please try again later.',
@@ -235,7 +235,7 @@ export function createSkibbaExpress(
             legacyHeaders: false,
             skip: (req) => req.method === 'GET', // Only apply to write operations
             handler: (req, res) => {
-                console.warn(`🚨 Write operation rate limit exceeded for ${req.ip}`);
+                console.warn(`🚨 Strict write operation rate limit exceeded for ${req.ip}`);
                 res.status(429).json({
                     error: 'Too many requests',
                     message: 'Write operation rate limit exceeded. Please try again later.',
@@ -252,9 +252,55 @@ export function createSkibbaExpress(
         const jsonLimit = options.jsonLimit || '50kb';
         const urlEncodedLimit = options.urlEncodedLimit || '50kb';
         
+        // Convert size strings to bytes for comparison
+        const parseSize = (sizeStr: string): number => {
+            const match = sizeStr.match(/^(\d+(?:\.\d+)?)(kb|mb|gb)?$/i);
+            if (!match) return 50 * 1024; // Default 50KB
+            
+            const num = parseFloat(match[1]);
+            const unit = (match[2] || '').toLowerCase();
+            
+            switch (unit) {
+                case 'gb': return num * 1024 * 1024 * 1024;
+                case 'mb': return num * 1024 * 1024;
+                case 'kb': return num * 1024;
+                default: return num; // Assume bytes
+            }
+        };
+        
+        const jsonLimitBytes = parseSize(jsonLimit);
+        const urlEncodedLimitBytes = parseSize(urlEncodedLimit);
+        
         return [
-            express.json({ limit: jsonLimit }),
-            express.urlencoded({ extended: true, limit: urlEncodedLimit })
+            // Check Content-Length header before any parsing occurs
+            (req: Request, res: Response, next: NextFunction) => {
+                const contentLength = req.get('Content-Length');
+                if (contentLength) {
+                    const size = parseInt(contentLength, 10);
+                    const contentType = req.get('Content-Type') || '';
+                    
+                    if (contentType.includes('application/json') && size > jsonLimitBytes) {
+                        console.log(`🚨 Upload size middleware rejecting ${size} bytes (limit: ${jsonLimitBytes} for ${jsonLimit})`);
+                        res.status(413).json({
+                            error: 'Payload too large',
+                            message: 'Request body exceeds size limit',
+                        });
+                        return;
+                    }
+                    
+                    if (contentType.includes('application/x-www-form-urlencoded') && size > urlEncodedLimitBytes) {
+                        console.log(`🚨 Upload size middleware rejecting ${size} bytes (limit: ${urlEncodedLimitBytes} for ${urlEncodedLimit})`);
+                        res.status(413).json({
+                            error: 'Payload too large',
+                            message: 'Request body exceeds size limit',
+                        });
+                        return;
+                    }
+                } else {
+                    console.log(`📝 No Content-Length header, limits: ${jsonLimit}`);
+                }
+                next();
+            }
         ];
     }
 
@@ -297,10 +343,12 @@ export function createSkibbaExpress(
             router.use(...config.middleware);
         }
 
-        // Apply custom upload size limits if specified
-        if (config.uploadLimitOptions) {
-            router.use(...createUploadSizeMiddleware(config.uploadLimitOptions));
-        }
+        // Apply upload size limits (custom or default) BEFORE rate limiting
+        // Collections without custom limits should use the default 50KB limit
+        console.log(`🔧 Collection ${basePath} upload config:`, config.uploadLimitOptions);
+        const uploadLimits = config.uploadLimitOptions || { jsonLimit: '50kb', urlEncodedLimit: '50kb' };
+        console.log(`🔧 Using upload limits for ${basePath}:`, uploadLimits);
+        router.use(...createUploadSizeMiddleware(uploadLimits));
 
         // Apply custom rate limiting if specified
         if (config.rateLimitOptions) {

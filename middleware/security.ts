@@ -253,6 +253,12 @@ export function validateInputSafety(input: any, context: 'general' | 'identifier
                 if (!ALLOWED_PATTERNS.EMAIL.test(input)) {
                     return { isValid: false, reason: 'Invalid email format' };
                 }
+                // Additional email validation checks
+                if (input.includes('..') || input.includes('@.') || input.includes('.@') || 
+                    input.startsWith('@') || input.endsWith('@') || 
+                    input.split('@').length !== 2) {
+                    return { isValid: false, reason: 'Invalid email format' };
+                }
                 break;
             case 'url':
                 if (!ALLOWED_PATTERNS.URL.test(input)) {
@@ -314,7 +320,33 @@ export function validateFieldType(value: any, fieldName: string): { isValid: boo
         if (typeof value !== 'string') {
             return { isValid: false, reason: 'Object keys must be strings' };
         }
-        return validateInputSafety(value, 'identifier');
+        
+        // Check for dangerous key patterns
+        const dangerousKeyPatterns = [
+            /__proto__/,
+            /constructor/,
+            /prototype/,
+            /<script/i,
+            /javascript:/i,
+            /on\w+\s*=/i, // onclick, onload, etc.
+            /[<>{}]/,
+            /[;'"]/,
+            /\$\w+/,  // MongoDB-style operators
+            /\n|\r/,   // Newlines
+        ];
+        
+        for (const pattern of dangerousKeyPatterns) {
+            if (pattern.test(value)) {
+                return { isValid: false, reason: 'Key contains dangerous characters or patterns' };
+            }
+        }
+        
+        // Basic identifier validation for keys
+        if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(value)) {
+            return { isValid: false, reason: 'Key must be a valid identifier (letters, numbers, underscore only)' };
+        }
+        
+        return { isValid: true };
     }
 
     // Define expected field types based on common patterns
@@ -409,6 +441,23 @@ export const securityMiddleware = (options?: {
         // Validate all user inputs using whitelist approach (much faster than regex blacklists)
         for (const { data, name } of userInputs) {
             if (data && typeof data === 'object') {
+                // First validate object keys for safety
+                for (const key of Object.keys(data)) {
+                    const keyValidation = validateFieldType(key, 'key');
+                    if (!keyValidation.isValid) {
+                        console.warn(
+                            `🚨 Invalid object key detected in ${name} from ${req.ip}:`,
+                            { key, reason: keyValidation.reason }
+                        );
+                        res.status(400).json({
+                            error: 'Validation failed',
+                            message: `Invalid object key "${key}": ${keyValidation.reason}`,
+                        });
+                        return;
+                    }
+                }
+                
+                // Then validate values
                 for (const [key, value] of Object.entries(data)) {
                     const fieldValidation = validateFieldType(value, key);
                     if (!fieldValidation.isValid) {
