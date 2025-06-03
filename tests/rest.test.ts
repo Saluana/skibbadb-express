@@ -3,7 +3,7 @@ import { z } from 'zod';
 import express from 'express';
 import request from 'supertest';
 import { createSkibbaExpress } from '../index';
-import { describe, beforeAll, afterAll, test, expect } from 'bun:test';
+import { describe, beforeAll, afterAll, test, expect } from 'vitest';
 
 // Test schema with array field
 const UserSchema = z.object({
@@ -22,7 +22,7 @@ describe('Array Filtering REST API Tests', () => {
     beforeAll(async () => {
         // Setup test database and collection
         database = new Database({ path: './test-data' });
-        usersCollection = database.collection('test-users', UserSchema);
+        usersCollection = database.collection('test_users', UserSchema);
 
         // Create Express app with SkibbaDB
         const expressApp = express();
@@ -34,7 +34,7 @@ describe('Array Filtering REST API Tests', () => {
             POST: {},
             PUT: {},
             DELETE: {},
-            basepath: '/test-users',
+            basepath: '/test_users',
         });
 
         // Insert test data
@@ -67,7 +67,7 @@ describe('Array Filtering REST API Tests', () => {
 
         // Clear existing data and insert test data
         try {
-            await usersCollection.deleteMany({});
+            await usersCollection.deleteBulk({});
         } catch (e) {
             // Collection might be empty
         }
@@ -89,7 +89,7 @@ describe('Array Filtering REST API Tests', () => {
     describe('Array filtering with _in operator', () => {
         test('should find users with admin role using roles_in=admin', async () => {
             const response = await request(app)
-                .get('/test-users?roles_in=admin')
+                .get('/test_users?roles_in=admin')
                 .expect(200);
 
             console.log(
@@ -115,7 +115,7 @@ describe('Array Filtering REST API Tests', () => {
 
         test('should find users with editor role using roles_in=editor', async () => {
             const response = await request(app)
-                .get('/test-users?roles_in=editor')
+                .get('/test_users?roles_in=editor')
                 .expect(200);
 
             console.log(
@@ -134,7 +134,7 @@ describe('Array Filtering REST API Tests', () => {
 
         test('should find users with multiple roles using multiple roles_in', async () => {
             const response = await request(app)
-                .get('/test-users?roles_in=admin&roles_in=editor')
+                .get('/test_users?roles_in=admin&roles_in=editor')
                 .expect(200);
 
             console.log(
@@ -147,7 +147,7 @@ describe('Array Filtering REST API Tests', () => {
     describe('Array filtering with _like operator', () => {
         test('should find users with admin-like roles using roles_like=admin', async () => {
             const response = await request(app)
-                .get('/test-users?roles_like=admin')
+                .get('/test_users?roles_like=admin')
                 .expect(200);
 
             console.log(
@@ -258,7 +258,7 @@ describe('Array Filtering REST API Tests', () => {
     describe('Alternative REST API workarounds', () => {
         test('should test equality filter on name field (non-array)', async () => {
             const response = await request(app)
-                .get('/test-users?name=Admin User')
+                .get('/test_users?name=Admin User')
                 .expect(200);
 
             console.log(
@@ -270,7 +270,7 @@ describe('Array Filtering REST API Tests', () => {
 
         test('should test _like filter on name field (non-array)', async () => {
             const response = await request(app)
-                .get('/test-users?name_like=Admin')
+                .get('/test_users?name_like=Admin')
                 .expect(200);
 
             console.log(
@@ -290,7 +290,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     // Simple test runner
     const runTests = async () => {
         const database = new Database({ path: './test-data' });
-        const usersCollection = database.collection('test-users', UserSchema);
+        const usersCollection = database.collection('test_users', UserSchema);
 
         // Insert test data
         const testUsers = [

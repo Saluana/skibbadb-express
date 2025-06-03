@@ -1,6 +1,11 @@
 import { Database } from 'skibbadb';
 import { createSkibbaExpress } from '../index.js';
-import { securityMiddleware, helmetMiddleware, additionalSecurityHeaders, rateLimitMiddleware } from '../middleware/security.js';
+import {
+    securityMiddleware,
+    helmetMiddleware,
+    additionalSecurityHeaders,
+    rateLimitMiddleware,
+} from '../middleware/security.js';
 import rateLimit from 'express-rate-limit';
 import request from 'supertest';
 import { z } from 'zod';
