@@ -38,6 +38,7 @@
     "node_modules",
     "dist",
     "tests/**/*",
-    "example.express_app.ts"
+    "example.express_app.ts",
+    "index.backup.ts"
   ]
 }
