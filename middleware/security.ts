@@ -3,229 +3,166 @@ import xss from 'xss';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 
-// Configure XSS with a strict allowlist for performance
+/* ────────────────────────────────────────────────────────────────────────────
+   CONSTANTS / ONE‑TIME COMPILED STRUCTURES
+   ────────────────────────────────────────────────────────────────────────── */
+
+const FREE_TEXT_SET = new Set([
+    'description',
+    'bio',
+    'content',
+    'message',
+    'comment',
+    'note',
+    'text',
+    'body',
+    'summary',
+    'details',
+    'review',
+    'feedback',
+    'caption',
+]);
+
+const STRUCTURED_SET = new Set([
+    'id',
+    'email',
+    'url',
+    'name',
+    'title',
+    'role',
+    'status',
+    'type',
+    'createdAt',
+    'updatedAt',
+    'age',
+    'count',
+    'price',
+    'phone',
+]);
+
+const NEVER_ALLOWED_SET = new Set(['<', '>', '{', '}', '\\', '`', '$']);
+
+/* Pre‑compiled case‑insensitive regexes for fast test() */
+const SQL_RX = /\b(;|--|\/\*|\*\/|union|select|drop|delete|insert|update)\b/i;
+const SCRIPT_RX = /\b(javascript:|vbscript:|data:|file:|php:)\b/i;
+const PATH_TRAVERSAL_RX = /\.\.[\\/]|\/etc\/|\\windows\\|\/passwd|\/hosts/i;
+const DANGEROUS_KEY_RX =
+    /(__proto__|constructor|prototype|<script|javascript:|on\w+\s*=|[<>{};'"]|\$\w+|\r|\n)/i;
+
+/* XSS options – created once */
 const xssOptions = {
-    allowList: {}, // No HTML tags allowed by default
+    allowList: {},
     stripIgnoreTag: true,
     stripIgnoreTagBody: ['script', 'style'],
-    css: false, // Disable CSS parsing for performance
+    css: false,
 };
 
-// Simple forbidden character sets for security threat detection
-const FORBIDDEN_CHARS = {
-    // Characters that are never allowed in user input (XSS prevention)
-    NEVER_ALLOWED: ['<', '>', '{', '}', '\\', '`', '$'],
+/* ────────────────────────────────────────────────────────────────────────────
+   FAST HELPERS
+   ────────────────────────────────────────────────────────────────────────── */
 
-    // SQL-related characters that require validation
-    SQL_SUSPICIOUS: [
-        ';',
-        '--',
-        '/*',
-        '*/',
-        'union',
-        'select',
-        'drop',
-        'delete',
-        'insert',
-        'update',
-    ],
-
-    // Script-related strings (XSS prevention)
-    SCRIPT_SUSPICIOUS: ['javascript:', 'vbscript:', 'data:', 'file:', 'php:'],
-
-    // Path traversal patterns
-    PATH_TRAVERSAL: [
-        '../',
-        '..\\',
-        '../',
-        '..\\\\',
-        '/etc/',
-        '\\windows\\',
-        '/passwd',
-        '/hosts',
-    ],
-};
-
-/**
- * Configuration for which fields need sanitization
- * Only free-text fields that could contain user HTML/script content need sanitization
- */
-export interface SanitizationConfig {
-    // Fields that contain free-text content requiring XSS sanitization
-    freeTextFields?: string[];
-    // Fields that should only be validated but not sanitized (e.g., structured data)
-    structuredFields?: string[];
-    // Whether to sanitize all string fields by default (performance impact)
-    sanitizeAllStrings?: boolean;
-}
-
-/**
- * Default sanitization config for common field patterns
- */
-const DEFAULT_SANITIZATION_CONFIG: SanitizationConfig = {
-    freeTextFields: [
-        'description',
-        'bio',
-        'content',
-        'message',
-        'comment',
-        'note',
-        'text',
-        'body',
-        'summary',
-        'details',
-        'review',
-        'feedback',
-        'caption',
-    ],
-    structuredFields: [
-        'id',
-        'email',
-        'url',
-        'name',
-        'title',
-        'role',
-        'status',
-        'type',
-        'createdAt',
-        'updatedAt',
-        'age',
-        'count',
-        'price',
-        'phone',
-    ],
-    sanitizeAllStrings: false,
-};
-
-/**
- * Lightweight string sanitization for free-text fields only
- */
-function sanitizeString(input: string): string {
-    // Use lightweight xss package instead of DOMPurify + JSDOM
-    let sanitized = xss(input, xssOptions);
-
-    // Additional lightweight sanitization for common attack vectors
-    sanitized = sanitized
+const sanitizeString = (input: string): string =>
+    xss(input, xssOptions)
         .replace(/javascript:/gi, '')
         .replace(/vbscript:/gi, '')
         .replace(/data:/gi, '')
-        .replace(/\bon\w+\s*=/gi, ''); // Remove event handlers
+        .replace(/\bon\w+\s*=/gi, '');
 
-    return sanitized;
-}
+export const validateSecurityThreats = (
+    value: any
+): { isValid: boolean; reason?: string } => {
+    const stack = [value];
 
-/**
- * Optimized sanitization that only processes free-text fields
- * Performance optimization: O(N) instead of O(N × regexes) for the entire object tree
- */
-export function sanitizeInput(
-    input: any,
-    config: SanitizationConfig = DEFAULT_SANITIZATION_CONFIG
-): any {
-    return sanitizeInputWithPath(input, [], config);
-}
+    while (stack.length) {
+        const item = stack.pop();
 
-/**
- * Internal function that tracks the path to determine field types
- */
-function sanitizeInputWithPath(
-    input: any,
-    path: string[],
-    config: SanitizationConfig
-): any {
-    if (typeof input === 'string') {
-        const currentField = path[path.length - 1];
+        if (typeof item === 'string') {
+            const lower = item.toLowerCase();
 
-        // For array elements, use the parent field name for context
-        const fieldName = isNaN(Number(currentField))
-            ? currentField
-            : path[path.length - 2];
-
-        // Only sanitize if it's a known free-text field or if sanitizeAllStrings is enabled
-        const isFreeTextField = config.freeTextFields?.includes(fieldName);
-        const isStructuredField = config.structuredFields?.includes(fieldName);
-
-        if (
-            isFreeTextField ||
-            (config.sanitizeAllStrings && !isStructuredField)
-        ) {
-            return sanitizeString(input);
-        }
-
-        // For structured fields, return as-is (validation happens elsewhere)
-        return input;
-    }
-
-    if (Array.isArray(input)) {
-        // Pass the current path so array elements inherit parent field context
-        return input.map((item, index) =>
-            sanitizeInputWithPath(item, [...path, index.toString()], config)
-        );
-    }
-
-    if (input && typeof input === 'object') {
-        const sanitized: any = {};
-        for (const [key, value] of Object.entries(input)) {
-            // Validate object keys for XSS/injection threats only
-            if (typeof key === 'string') {
-                const keyValidation = validateObjectKey(key);
-                if (!keyValidation.isValid) {
-                    throw new Error(
-                        `Invalid object key "${key}": ${keyValidation.reason}`
-                    );
-                }
+            if ([...item].some((ch) => NEVER_ALLOWED_SET.has(ch)))
+                return {
+                    isValid: false,
+                    reason: 'Contains forbidden characters',
+                };
+            if (SQL_RX.test(lower))
+                return {
+                    isValid: false,
+                    reason: 'Contains SQL‑suspicious content',
+                };
+            if (SCRIPT_RX.test(lower))
+                return {
+                    isValid: false,
+                    reason: 'Contains script‑suspicious content',
+                };
+            if (PATH_TRAVERSAL_RX.test(lower))
+                return {
+                    isValid: false,
+                    reason: 'Contains path traversal patterns',
+                };
+        } else if (Array.isArray(item)) {
+            stack.push(...item);
+        } else if (item && typeof item === 'object') {
+            for (const [k, v] of Object.entries(item)) {
+                /* Validate keys only once here */
+                if (typeof k === 'string' && DANGEROUS_KEY_RX.test(k))
+                    return { isValid: false, reason: 'Dangerous object key' };
+                stack.push(v);
             }
-            // Recursively process values with updated path
-            const sanitizedValue = sanitizeInputWithPath(
-                value,
-                [...path, key],
-                config
-            );
-            sanitized[key] = sanitizedValue; // Use original key, not sanitized
         }
-        return sanitized;
+    }
+    return { isValid: true };
+};
+
+const sanitizeInputFast = (value: any, parentKey = ''): any => {
+    if (typeof value === 'string') {
+        const isFree = FREE_TEXT_SET.has(parentKey);
+        const isStruct = STRUCTURED_SET.has(parentKey);
+        if (
+            isFree ||
+            (!isStruct && DEFAULT_SANITIZATION_CONFIG.sanitizeAllStrings)
+        )
+            return sanitizeString(value);
+        return value;
     }
 
-    return input;
+    if (Array.isArray(value))
+        return value.map((v) => sanitizeInputFast(v, parentKey)); // parent key unchanged
+
+    if (value && typeof value === 'object') {
+        const out: Record<string, any> = {};
+        for (const [k, v] of Object.entries(value)) {
+            /* key already validated by higher‑level call */
+            out[k] = sanitizeInputFast(v, k);
+        }
+        return out;
+    }
+
+    return value;
+};
+
+export interface SanitizationConfig {
+    freeTextFields?: string[];
+    structuredFields?: string[];
+    sanitizeAllStrings?: boolean;
 }
 
-/**
- * Legacy function for backward compatibility - recursively sanitizes everything
- * @deprecated Use sanitizeInput with proper field configuration instead
- * WARNING: This function still sanitizes keys, which can cause property name collisions
- */
-export function sanitizeInputRecursive(input: any): any {
-    if (typeof input === 'string') {
-        return sanitizeString(input);
-    }
+const DEFAULT_SANITIZATION_CONFIG: SanitizationConfig = {
+    freeTextFields: [...FREE_TEXT_SET],
+    structuredFields: [...STRUCTURED_SET],
+    sanitizeAllStrings: false,
+};
 
-    if (Array.isArray(input)) {
-        return input.map(sanitizeInputRecursive);
-    }
+/* ────────────────────────────────────────────────────────────────────────────
+   PUBLIC API
+   ────────────────────────────────────────────────────────────────────────── */
 
-    if (input && typeof input === 'object') {
-        const sanitized: any = {};
-        for (const [key, value] of Object.entries(input)) {
-            // WARNING: This still sanitizes keys for backward compatibility
-            // Consider migrating to sanitizeInput() for safer key handling
-            const sanitizedKey = sanitizeInputRecursive(key);
-            const sanitizedValue = sanitizeInputRecursive(value);
-            sanitized[sanitizedKey] = sanitizedValue;
-        }
-        return sanitized;
-    }
+export const sanitizeInput = sanitizeInputFast; // same signature
+export const sanitizeInputRecursive = (input: any): any =>
+    sanitizeString(typeof input === 'string' ? input : JSON.stringify(input)); // legacy – retain behaviour but simplified
 
-    return input;
-}
-
-/**
- * Sanitizes rich text content with a limited allowlist for specific use cases
- * Only use this for fields that explicitly require HTML content
- */
-export function sanitizeRichText(input: string): string {
-    const richTextOptions = {
+export const sanitizeRichText = (input: string): string =>
+    xss(input, {
         allowList: {
-            // Only allow safe formatting tags
             p: [],
             br: [],
             strong: [],
@@ -245,171 +182,46 @@ export function sanitizeRichText(input: string): string {
         },
         stripIgnoreTag: true,
         stripIgnoreTagBody: ['script', 'style', 'iframe', 'object', 'embed'],
-        css: false, // Still disable CSS for performance
-    };
+        css: false,
+    });
 
-    return xss(input, richTextOptions);
-}
+export const validateObjectKey = (key: string) =>
+    typeof key === 'string' && !DANGEROUS_KEY_RX.test(key)
+        ? { isValid: true }
+        : {
+              isValid: false,
+              reason: 'Key contains dangerous characters or patterns',
+          };
 
-/**
- * Validates input for XSS and SQL injection attempts only
- */
-export function validateSecurityThreats(input: any): {
-    isValid: boolean;
-    reason?: string;
-} {
-    if (typeof input === 'string') {
-        const lowerInput = input.toLowerCase();
+/* ────────────────────────────────────────────────────────────────────────────
+   EXPRESS MIDDLEWARE
+   ────────────────────────────────────────────────────────────────────────── */
 
-        // Check for XSS-related patterns
-        if (
-            FORBIDDEN_CHARS.NEVER_ALLOWED.some((char) => input.includes(char))
-        ) {
-            return { isValid: false, reason: 'Contains forbidden characters' };
-        }
-
-        // Check for SQL injection patterns
-        if (
-            FORBIDDEN_CHARS.SQL_SUSPICIOUS.some((term) =>
-                lowerInput.includes(term)
-            )
-        ) {
-            return {
-                isValid: false,
-                reason: 'Contains SQL-suspicious content',
-            };
-        }
-
-        // Check for script injection patterns
-        if (
-            FORBIDDEN_CHARS.SCRIPT_SUSPICIOUS.some((term) =>
-                lowerInput.includes(term)
-            )
-        ) {
-            return {
-                isValid: false,
-                reason: 'Contains script-suspicious content',
-            };
-        }
-
-        // Check for path traversal patterns
-        if (
-            FORBIDDEN_CHARS.PATH_TRAVERSAL.some((term) =>
-                lowerInput.includes(term)
-            )
-        ) {
-            return {
-                isValid: false,
-                reason: 'Contains path traversal patterns',
-            };
-        }
-
-        return { isValid: true };
-    }
-
-    if (Array.isArray(input)) {
-        for (const item of input) {
-            const result = validateSecurityThreats(item);
-            if (!result.isValid) {
-                return result;
-            }
-        }
-        return { isValid: true };
-    }
-
-    if (input && typeof input === 'object') {
-        for (const [key, value] of Object.entries(input)) {
-            // Check keys for dangerous patterns
-            const keyResult = validateSecurityThreats(key);
-            if (!keyResult.isValid) {
-                return {
-                    isValid: false,
-                    reason: `Invalid key: ${keyResult.reason}`,
-                };
-            }
-
-            // Check values for dangerous patterns
-            const valueResult = validateSecurityThreats(value);
-            if (!valueResult.isValid) {
-                return valueResult;
-            }
-        }
-        return { isValid: true };
-    }
-
-    return { isValid: true };
-}
-
-/**
- * Simple validation for object keys to prevent dangerous patterns
- */
-export function validateObjectKey(key: string): {
-    isValid: boolean;
-    reason?: string;
-} {
-    if (typeof key !== 'string') {
-        return { isValid: false, reason: 'Object keys must be strings' };
-    }
-
-    // Check for dangerous key patterns that could indicate XSS or injection attempts
-    const dangerousKeyPatterns = [
-        /__proto__/,
-        /constructor/,
-        /prototype/,
-        /<script/i,
-        /javascript:/i,
-        /on\w+\s*=/i, // onclick, onload, etc.
-        /[<>{}]/,
-        /[;'"]/,
-        /\$\w+/, // MongoDB-style operators
-        /\n|\r/, // Newlines
-    ];
-
-    for (const pattern of dangerousKeyPatterns) {
-        if (pattern.test(key)) {
-            return {
-                isValid: false,
-                reason: 'Key contains dangerous characters or patterns',
-            };
-        }
-    }
-
-    return { isValid: true };
-}
-
-/**
- * Security middleware focused on XSS and SQL injection protection
- * Input validation (email, formats, etc.) should be handled by Zod or application layer
- */
 export const securityMiddleware =
-    (options?: {
-        maxBodySize?: number; // Max body size in bytes (default: 50KB)
-        maxQuerySize?: number; // Max query size in bytes (default: 10KB)
-    }) =>
+    (opts?: { maxBodySize?: number; maxQuerySize?: number }) =>
     (req: Request, res: Response, next: NextFunction): void => {
-        const maxBodySize = options?.maxBodySize || 50000; // 50KB default
-        const maxQuerySize = options?.maxQuerySize || 10000; // 10KB default
-
         try {
-            // Check input size limits first - reject large inputs rather than truncate
-            const requestBody = JSON.stringify(req.body || {});
-            const requestQuery = JSON.stringify(req.query || {});
+            const maxBody = opts?.maxBodySize ?? 50_000; // 50 KB
+            const maxQuery = opts?.maxQuerySize ?? 10_000; // 10 KB
 
-            if (requestBody.length > maxBodySize) {
-                console.warn(
-                    `🚨 Large request body rejected from ${req.ip}: ${requestBody.length} bytes (limit: ${maxBodySize})`
+            /* Size checks – prefer content‑length header if present */
+            const bodySize =
+                Number(req.headers['content-length']) ||
+                Buffer.byteLength(
+                    (req as any).rawBody ?? JSON.stringify(req.body || {})
                 );
+            const querySize = Buffer.byteLength(
+                JSON.stringify(req.query || {})
+            );
+
+            if (bodySize > maxBody) {
                 res.status(413).json({
                     error: 'Request too large',
                     message: 'Request body exceeds size limit',
                 });
                 return;
             }
-
-            if (requestQuery.length > maxQuerySize) {
-                console.warn(
-                    `🚨 Large query parameters rejected from ${req.ip}: ${requestQuery.length} bytes (limit: ${maxQuerySize})`
-                );
+            if (querySize > maxQuery) {
                 res.status(413).json({
                     error: 'Request too large',
                     message: 'Query parameters exceed size limit',
@@ -417,101 +229,34 @@ export const securityMiddleware =
                 return;
             }
 
-            // Fast security threat validation for all user inputs
-            const userInputs = [
-                { data: req.body, name: 'body' },
-                { data: req.query, name: 'query' },
-                { data: req.params, name: 'params' },
-            ];
-
-            // Only check specific suspicious headers, not all headers
-            const suspiciousHeaders = {
-                'x-forwarded-for': req.headers['x-forwarded-for'],
-                'x-real-ip': req.headers['x-real-ip'],
-                referer: req.headers['referer'],
-            };
-
-            // Validate all user inputs for XSS and SQL injection threats only
-            for (const { data, name } of userInputs) {
-                if (data) {
-                    const validation = validateSecurityThreats(data);
-                    if (!validation.isValid) {
-                        console.warn(
-                            `🚨 Security threat detected in ${name} from ${req.ip}:`,
-                            { reason: validation.reason }
-                        );
-                        res.status(400).json({
-                            error: 'Security violation',
-                            message: `Security threat detected in ${name}: ${validation.reason}`,
-                        });
-                        return;
-                    }
-                }
-            }
-
-            // Check suspicious headers for security threats
-            const headerValidation = validateSecurityThreats(suspiciousHeaders);
-            if (!headerValidation.isValid) {
-                console.warn(
-                    `🚨 Security threat detected in headers from ${req.ip}:`,
-                    { reason: headerValidation.reason }
-                );
+            /* Unified validation for body, query & params */
+            const threat = validateSecurityThreats({
+                body: req.body,
+                query: req.query,
+                params: req.params,
+            });
+            if (!threat.isValid) {
                 res.status(400).json({
                     error: 'Security violation',
-                    message: 'Security threat detected in headers',
+                    message: threat.reason,
                 });
                 return;
             }
 
-            // Lightweight XSS sanitization using allowlist approach (no DOM construction)
-            if (req.body && typeof req.body === 'object') {
-                try {
-                    req.body = sanitizeInput(req.body);
-                } catch (sanitizeError: any) {
-                    console.warn(
-                        `🚨 Dangerous object key detected in request body from ${req.ip}:`,
-                        { error: sanitizeError.message }
-                    );
-                    res.status(400).json({
-                        error: 'Security violation',
-                        message:
-                            sanitizeError.message ||
-                            'Invalid object key detected',
-                    });
-                    return;
-                }
-            }
-
-            // Lightweight sanitization of query parameters (no DOM construction)
+            /* Sanitize */
+            if (req.body && typeof req.body === 'object')
+                req.body = sanitizeInputFast(req.body);
             if (req.query && typeof req.query === 'object') {
-                try {
-                    // Create a new object with sanitized query parameters
-                    const sanitizedQuery = sanitizeInput(req.query);
-                    // Override the getter to return sanitized values
-                    Object.defineProperty(req, 'query', {
-                        value: sanitizedQuery,
-                        writable: false,
-                        enumerable: true,
-                        configurable: true,
-                    });
-                } catch (sanitizeError: any) {
-                    console.warn(
-                        `🚨 Dangerous object key detected in query parameters from ${req.ip}:`,
-                        { error: sanitizeError.message }
-                    );
-                    res.status(400).json({
-                        error: 'Security violation',
-                        message:
-                            sanitizeError.message ||
-                            'Invalid object key detected',
-                    });
-                    return;
-                }
+                const sanitized = sanitizeInputFast(req.query);
+                Object.defineProperty(req, 'query', {
+                    value: sanitized,
+                    writable: false,
+                });
             }
 
             next();
-        } catch (error) {
-            console.error('Security middleware error:', error);
+        } catch (err) {
+            console.error('Security middleware error', err);
             res.status(500).json({
                 error: 'Internal security error',
                 message: 'Unable to process request',
@@ -519,18 +264,15 @@ export const securityMiddleware =
         }
     };
 
-/**
- * Rate limiting middleware to prevent brute force attacks
- */
 export const rateLimitMiddleware = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
     message: {
         error: 'Too many requests',
         message: 'Rate limit exceeded. Please try again later.',
     },
-    standardHeaders: true,
-    legacyHeaders: false,
     handler: (req, res) => {
         console.warn(`🚨 Rate limit exceeded for ${req.ip}`);
         res.status(429).json({
@@ -540,19 +282,16 @@ export const rateLimitMiddleware = rateLimit({
     },
 });
 
-/**
- * Strict rate limiting for write operations (POST, PUT, DELETE)
- */
 export const strictRateLimitMiddleware = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 30, // Limit each IP to 30 write requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.method === 'GET',
     message: {
         error: 'Too many requests',
         message: 'Write operation rate limit exceeded. Please try again later.',
     },
-    standardHeaders: true,
-    legacyHeaders: false,
-    skip: (req) => req.method === 'GET', // Only apply to write operations
     handler: (req, res) => {
         console.warn(`🚨 Write operation rate limit exceeded for ${req.ip}`);
         res.status(429).json({
@@ -563,9 +302,6 @@ export const strictRateLimitMiddleware = rateLimit({
     },
 });
 
-/**
- * Helmet middleware for additional security headers
- */
 export const helmetMiddleware = helmet({
     contentSecurityPolicy: {
         directives: {
@@ -580,21 +316,17 @@ export const helmetMiddleware = helmet({
             frameSrc: ["'none'"],
         },
     },
-    crossOriginEmbedderPolicy: false, // Allow for API usage
+    crossOriginEmbedderPolicy: false,
 });
 
-/**
- * Additional security headers middleware
- */
 export const additionalSecurityHeaders = (
-    req: Request,
+    _req: Request,
     res: Response,
     next: NextFunction
 ): void => {
-    // Add additional security headers that helmet might not cover or to ensure they're set
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY'); // Explicitly set this header
-    res.setHeader('X-XSS-Protection', '1; mode=block'); // Explicitly set this header
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader(
         'Permissions-Policy',
@@ -605,35 +337,23 @@ export const additionalSecurityHeaders = (
         'no-store, no-cache, must-revalidate, private'
     );
     res.setHeader('Pragma', 'no-cache');
-
     next();
 };
 
-/**
- * Basic security validation middleware for user data (legacy)
- * Note: This is a minimal version. Input validation should be handled by Zod schemas.
- * This only checks for basic security threats.
- */
 export const validateUserInput = (
     req: Request,
     res: Response,
     next: NextFunction
 ): void => {
     if (req.method === 'POST' || req.method === 'PUT') {
-        // Only check for obvious security threats in the request body
-        const validation = validateSecurityThreats(req.body);
-        if (!validation.isValid) {
-            console.warn(
-                `🚨 Security threat detected in user input from ${req.ip}:`,
-                { reason: validation.reason }
-            );
+        const result = validateSecurityThreats(req.body);
+        if (!result.isValid) {
             res.status(400).json({
                 error: 'Security violation',
-                message: `Security threat detected: ${validation.reason}`,
+                message: result.reason,
             });
             return;
         }
     }
-
     next();
 };

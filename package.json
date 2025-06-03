@@ -44,17 +44,13 @@
         "skibbadb": "^0.1.0"
     },
     "dependencies": {
-        "dompurify": "^3.2.6",
         "express-rate-limit": "^7.5.0",
-        "express-validator": "^7.2.1",
         "helmet": "^8.1.0",
-        "jsdom": "^26.1.0",
         "xss": "^1.0.15",
         "zod": "^3.22.0"
     },
     "devDependencies": {
         "@types/express": "^5.0.2",
-        "@types/jsdom": "^21.1.7",
         "@types/node": "^20.0.0",
         "@types/supertest": "^6.0.3",
         "supertest": "^7.1.1",
