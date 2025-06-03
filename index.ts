@@ -420,9 +420,28 @@ export function createSkibbaExpress(
 
                         // Quick win #1: Memoize converted array for _in
                         if (suf === '_in') {
-                            const inArr = Array.isArray(value)
-                                ? value
-                                : [value];
+                            let inArr: any[];
+
+                            if (Array.isArray(value)) {
+                                inArr = value;
+                            } else if (
+                                typeof value === 'string' &&
+                                value.startsWith('[') &&
+                                value.endsWith(']')
+                            ) {
+                                // Parse JSON array string like '["admin", "user"]'
+                                try {
+                                    inArr = JSON.parse(value);
+                                    if (!Array.isArray(inArr)) {
+                                        inArr = [value]; // fallback if JSON parsing doesn't return array
+                                    }
+                                } catch (e) {
+                                    inArr = [value]; // fallback if JSON parsing fails
+                                }
+                            } else {
+                                inArr = [value];
+                            }
+
                             // Normalize each value in the array once
                             const normalizedArr = inArr.map((v) =>
                                 v === 'true'
@@ -433,7 +452,64 @@ export function createSkibbaExpress(
                                     ? Number(v)
                                     : v
                             );
-                            preds.push((q) => q.where(field).in(normalizedArr));
+
+                            // Check if the field is an array type in the schema
+                            // We need to check the actual schema shape to determine if this is an array field
+                            let isArrayField = false;
+                            try {
+                                const s = (collection as any).collectionSchema
+                                    .schema;
+                                if ('shape' in s && s.shape[field]) {
+                                    const fieldSchema = s.shape[field];
+                                    isArrayField =
+                                        fieldSchema._def?.typeName ===
+                                        'ZodArray';
+                                } else if (
+                                    s._def?.shape &&
+                                    s._def.shape[field]
+                                ) {
+                                    const fieldSchema = s._def.shape[field];
+                                    isArrayField =
+                                        fieldSchema._def?.typeName ===
+                                        'ZodArray';
+                                } else if (
+                                    typeof s._def?.shape === 'function'
+                                ) {
+                                    const shapeObj = s._def.shape();
+                                    if (shapeObj[field]) {
+                                        const fieldSchema = shapeObj[field];
+                                        isArrayField =
+                                            fieldSchema._def?.typeName ===
+                                            'ZodArray';
+                                    }
+                                }
+                            } catch (e) {
+                                // Fallback: assume it's an array field if the field name suggests it
+                                isArrayField =
+                                    field === 'roles' ||
+                                    field.includes('array') ||
+                                    field.endsWith('s');
+                            }
+
+                            if (isArrayField) {
+                                // For array fields, we need to check if the array contains ALL of the values (AND logic)
+                                // Use arrayContains method which works perfectly for this use case
+                                normalizedArr.forEach((val) => {
+                                    preds.push((q) =>
+                                        q.where(field).arrayContains(val)
+                                    );
+                                });
+                            } else {
+                                // For scalar fields, use normal .in() operation
+                                preds.push((q) =>
+                                    q.where(field).in(normalizedArr)
+                                );
+                            }
+                        } else if (suf === '_contains') {
+                            // New _contains operator specifically for array fields
+                            preds.push((q) =>
+                                q.where(field).like(`%"${vNorm}"%`)
+                            );
                         } else if (suf === '_gt') {
                             preds.push((q) => q.where(field).gt(vNorm));
                         } else if (suf === '_gte') {
