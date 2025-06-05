@@ -105,7 +105,7 @@ app.get('/', (req, res) => {
         version: '1.0.0',
         endpoints: {
             'GET /health': 'Health check',
-            'GET /api/users': 'List users',
+            'GET /api/users': 'List users. Supports field selection via ?select=["field1","field2"] (e.g., ?select=["name","email"])',
             'GET /api/users/:id': 'Get user by ID',
             'POST /api/users': 'Create user (admin only)',
             'PUT /api/users/:id': 'Update user (admin only)',

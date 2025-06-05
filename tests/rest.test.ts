@@ -333,6 +333,178 @@ describe('Array Filtering REST API Tests', () => {
     });
 });
 
+describe('Select Query Parameter Tests', () => {
+    let app;
+    let database;
+    let usersCollection;
+
+    beforeAll(async () => {
+        database = new Database({ path: './test-data' }); // Use the same test-data path
+        usersCollection = database.collection('test_users_select', UserSchema); // Use a different collection name or ensure cleanup
+
+        const expressApp = express();
+        app = createSkibbaExpress(expressApp, database);
+
+        app.useCollection(usersCollection, {
+            GET: {},
+            POST: {}, // Add POST for setup if needed, or rely on beforeAll
+            basePath: '/test_users_select',
+        });
+
+        // Ensure the collection is clean before tests
+        try {
+            const existingUsers = await usersCollection.query().toArray();
+            for (const user of existingUsers) {
+                await usersCollection.delete(user.id);
+            }
+        } catch (e) {
+            console.log('Cleanup warning (select tests):', e.message);
+        }
+
+        const testUsers = [
+            { id: 'select1', name: 'Alice', roles: ['user'], email: 'alice@example.com' },
+            { id: 'select2', name: 'Bob', roles: ['admin', 'user'], email: 'bob@example.com' },
+        ];
+        for (const user of testUsers) {
+            try {
+                await usersCollection.insert(user);
+            } catch (e) {
+                // Ignore if already exists, for robustness in local test runs
+                if (!e.message.includes('already exists')) throw e;
+            }
+        }
+    });
+
+    afterAll(async () => {
+        try {
+            const existingUsers = await usersCollection.query().toArray();
+            for (const user of existingUsers) {
+                await usersCollection.delete(user.id);
+            }
+        } catch (e) {
+            console.log('Cleanup error (select tests):', e.message);
+        }
+    });
+
+    test('should return only selected fields using ?select=["name","email"]', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select=["name","email"]')
+            .expect(200);
+
+        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body.length).toBeGreaterThan(0);
+        response.body.forEach(user => {
+            expect(Object.keys(user).sort()).toEqual(['name', 'email'].sort());
+            expect(user).toHaveProperty('name');
+            expect(user).toHaveProperty('email');
+            expect(user).not.toHaveProperty('id');
+            expect(user).not.toHaveProperty('roles');
+        });
+    });
+
+    test('should return only selected fields including id using ?select=["id","name"]', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select=["id","name"]')
+            .expect(200);
+
+        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body.length).toBeGreaterThan(0);
+        response.body.forEach(user => {
+            expect(Object.keys(user).sort()).toEqual(['id', 'name'].sort());
+            expect(user).toHaveProperty('id');
+            expect(user).toHaveProperty('name');
+            expect(user).not.toHaveProperty('email');
+            expect(user).not.toHaveProperty('roles');
+        });
+    });
+
+    test('should return all fields if select is not used', async () => {
+        const response = await request(app)
+            .get('/test_users_select')
+            .expect(200);
+
+        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body.length).toBeGreaterThan(0);
+        response.body.forEach(user => {
+            expect(Object.keys(user).sort()).toEqual(['id', 'name', 'email', 'roles'].sort());
+        });
+    });
+
+    test('should return 400 for invalid schema field in select parameter ?select=["name","invalidField"]', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select=["name","invalidField"]')
+            .expect(400);
+
+        expect(response.body).toHaveProperty('error', 'Invalid select parameter');
+        expect(response.body).toHaveProperty('message', "Unknown field 'invalidField' in select parameter.");
+    });
+
+    test('should return 400 for empty JSON array ?select=[]', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select=[]')
+            .expect(400);
+
+        expect(response.body).toHaveProperty('error', 'Invalid select parameter format');
+        expect(response.body).toHaveProperty('details');
+        expect(response.body.details).toHaveProperty('formErrors'); // Zod's structure for array errors
+        expect(response.body.details.formErrors[0]).toContain('Array must contain at least 1 element(s)');
+    });
+
+    test('should return 400 for invalid JSON syntax ?select=[name,email]', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select=[name,email]') // Missing quotes
+            .expect(400);
+
+        expect(response.body).toHaveProperty('error', 'Invalid select parameter');
+        expect(response.body).toHaveProperty('message', 'Invalid JSON format for select parameter.');
+    });
+
+    test('should return 400 for non-array JSON type ?select={"name":"test"}', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select={"name":"test"}')
+            .expect(400);
+
+        expect(response.body).toHaveProperty('error', 'Invalid select parameter format');
+        expect(response.body).toHaveProperty('details');
+        // Zod's error structure might vary slightly based on the exact failure,
+        // but it often includes a "code" and "expected/received" or similar.
+        // For a type mismatch on the root, formErrors might be empty, and fieldErrors could show it.
+        // This is a general check; more specific checks can be added if the exact Zod error shape is known.
+        expect(response.body.details.formErrors[0]).toContain('Expected array, received object');
+    });
+
+    test('should return 400 for non-string element in array ?select=["name",123]', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select=["name",123]')
+            .expect(400);
+
+        expect(response.body).toHaveProperty('error', 'Invalid select parameter format');
+        expect(response.body).toHaveProperty('details');
+        expect(response.body.details.fieldErrors).toHaveProperty('1'); // Error is on the element at index 1
+        expect(response.body.details.fieldErrors['1'][0]).toContain('Expected string, received number');
+    });
+
+    test('should return 400 for empty string in array ?select=[""]', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select=[""]')
+            .expect(400);
+
+        expect(response.body).toHaveProperty('error', 'Invalid select parameter format');
+        expect(response.body).toHaveProperty('details');
+        expect(response.body.details.fieldErrors).toHaveProperty('0'); // Error is on the element at index 0
+        expect(response.body.details.fieldErrors['0'][0]).toContain('String must contain at least 1 character(s)');
+    });
+
+    test('should return 400 for select parameter as an empty string ?select=""', async () => {
+        const response = await request(app)
+            .get('/test_users_select?select=""') // Empty string, invalid JSON
+            .expect(400);
+
+        expect(response.body).toHaveProperty('error', 'Invalid select parameter');
+        expect(response.body).toHaveProperty('message', 'Invalid JSON format for select parameter.');
+    });
+});
+
 // If you want to run this as a standalone script:
 if (import.meta.url === `file://${process.argv[1]}`) {
     console.log('Running array filtering tests...');

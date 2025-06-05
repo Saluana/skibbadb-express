@@ -8,7 +8,7 @@ import express, {
     type NextFunction,
 } from 'express';
 import { Database, Collection } from 'skibbadb';
-import type { z } from 'zod';
+import { z } from 'zod'; // Ensure z is imported
 import {
     sanitizeInput,
     sanitizeInputRecursive,
@@ -367,6 +367,48 @@ export function createSkibbaExpress(
                         return;
                     }
 
+                    const selectParam = qParams.select as string | undefined;
+                    let selectFields: string[] | undefined;
+
+                    if (selectParam) {
+                        let parsedJson: any;
+                        try {
+                            parsedJson = JSON.parse(selectParam);
+                        } catch (e) {
+                            res.status(400).json({
+                                error: 'Invalid select parameter',
+                                message: 'Invalid JSON format for select parameter.',
+                            });
+                            return;
+                        }
+
+                        const selectSchema = z.array(z.string().min(1)).min(1); // min(1) on array ensures not empty
+                        const validationResult = selectSchema.safeParse(parsedJson);
+
+                        if (!validationResult.success) {
+                            res.status(400).json({
+                                error: 'Invalid select parameter format',
+                                details: validationResult.error.flatten(),
+                            });
+                            return;
+                        }
+
+                        // Now validationResult.data is the validated array of non-empty strings
+                        selectFields = validationResult.data.map(f => f.trim()); // Trim after validation
+
+                        for (const field of selectFields) {
+                            // The individual string format (non-empty) is already validated by Zod.
+                            // We still need to check if the field name is valid against the schema.
+                            if (!isValidField(field)) { // field is already trimmed
+                                res.status(400).json({
+                                    error: 'Invalid select parameter',
+                                    message: `Unknown field '${field}' in select parameter.`,
+                                });
+                                return;
+                            }
+                        }
+                    }
+
                     /* build predicate list once with optimizations */
                     type Pred = (q: any) => any;
                     const preds: Pred[] = [];
@@ -376,6 +418,7 @@ export function createSkibbaExpress(
                         'offset',
                         'orderBy',
                         'sort',
+                        'select',
                     ]);
 
                     for (const [rawKey, value] of Object.entries(qParams)) {
@@ -560,6 +603,11 @@ export function createSkibbaExpress(
 
                     if (orderBy)
                         rowQ = rowQ.orderBy(orderBy, sortDir as 'asc' | 'desc');
+
+                    if (selectFields && selectFields.length > 0) {
+                        rowQ = rowQ.select(selectFields);
+                    }
+
                     if (page && limit) rowQ = rowQ.page(page, limit);
                     else {
                         if (limit) rowQ = rowQ.limit(limit);
