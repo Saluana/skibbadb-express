@@ -1,4 +1,4 @@
-import { Database, Collection } from 'skibbadb';
+import { createDB, Collection } from 'skibbadb';
 import { z } from 'zod';
 import express from 'express';
 import request from 'supertest';
@@ -21,8 +21,15 @@ describe('Array Filtering REST API Tests', () => {
 
     beforeAll(async () => {
         // Setup test database and collection
-        database = new Database({ path: './test-data' });
+        database = createDB({ path: './test-data' });
         usersCollection = database.collection('test_users', UserSchema);
+
+        usersCollection.insert({
+            id: 'test-1',
+            name: 'Test User 1',
+            roles: [],
+            email: '',
+        });
 
         // Create Express app with SkibbaDB
         const expressApp = express();
@@ -225,7 +232,10 @@ describe('Array Filtering REST API Tests', () => {
                         JSON.stringify(eqResults, null, 2)
                     );
                 } catch (eqError) {
-                    console.log('Direct .eq() with array failed:', eqError.message);
+                    console.log(
+                        'Direct .eq() with array failed:',
+                        eqError.message
+                    );
                 }
 
                 // Test if we can query individual elements (if SkibbaDB supports nested queries)
@@ -239,11 +249,16 @@ describe('Array Filtering REST API Tests', () => {
                         JSON.stringify(containsResults, null, 2)
                     );
                 } catch (nestedError) {
-                    console.log('Nested query not supported:', nestedError.message);
+                    console.log(
+                        'Nested query not supported:',
+                        nestedError.message
+                    );
                 }
 
                 // Just accept that array querying might not be supported and mark the test as skipped
-                console.warn('⚠️  Array field querying not fully supported by SkibbaDB');
+                console.warn(
+                    '⚠️  Array field querying not fully supported by SkibbaDB'
+                );
                 expect(true).toBe(true); // Pass the test anyway since this is exploratory
             }
         });
@@ -308,21 +323,23 @@ describe('Array Filtering REST API Tests', () => {
                 'Name like filter:',
                 JSON.stringify(response.body, null, 2)
             );
-            
+
             // Check if like filter works at all
             if (response.body.length === 0) {
-                console.warn('⚠️  LIKE filter may not work as expected, trying alternative pattern');
-                
+                console.warn(
+                    '⚠️  LIKE filter may not work as expected, trying alternative pattern'
+                );
+
                 // Try different patterns
                 const response2 = await request(app)
                     .get('/test_users?name_like=%Admin%')
                     .expect(200);
-                    
+
                 console.log(
                     'Name like filter with %:',
                     JSON.stringify(response2.body, null, 2)
                 );
-                
+
                 // If still no results, just verify the basic functionality works
                 expect(Array.isArray(response.body)).toBe(true);
             } else {
@@ -339,7 +356,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
     // Simple test runner
     const runTests = async () => {
-        const database = new Database({ path: './test-data' });
+        const database = createDB({ path: './test-data' });
         const usersCollection = database.collection('test_users', UserSchema);
 
         // Insert test data

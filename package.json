@@ -1,6 +1,6 @@
 {
     "name": "skibbadb-express",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "description": "Express.js integration plugin for SkibbaDB with automatic CRUD operations, pagination, filtering, and security features",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -41,7 +41,7 @@
     },
     "peerDependencies": {
         "express": "^4.0.0 || ^5.0.0",
-        "skibbadb": "^0.1.0"
+        "skibbadb": "^0.1.1"
     },
     "dependencies": {
         "express-rate-limit": "^7.5.0",
