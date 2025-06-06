@@ -917,7 +917,7 @@ describe('REST API Select Functionality - Comprehensive Tests', () => {
             for (const person of response.body) {
                 expect(person).toHaveProperty('name');
                 expect(person).toHaveProperty('email');
-                
+
                 // SkibbaDB creates empty profile objects when selecting nested fields that don't exist
                 // Only check for avatar if the profile has content
                 if (person.profile && Object.keys(person.profile).length > 0) {
