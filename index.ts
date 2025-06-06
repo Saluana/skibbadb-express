@@ -299,7 +299,45 @@ export function createSkibbaExpress(
         if (cfg.GET) {
             router.get('/:id', ...methodMW(cfg.GET), async (req, res, next) => {
                 try {
+                    const qParams = req.query as Record<string, any>;
                     let q = collection.where('_id' as any).eq(req.params.id);
+
+                    // Optional select fields
+                    if (qParams.select !== undefined) {
+                        let arr: any[] | undefined;
+                        const val = qParams.select;
+                        if (Array.isArray(val)) arr = val as any[];
+                        else if (
+                            typeof val === 'string' &&
+                            val.startsWith('[') &&
+                            val.endsWith(']')
+                        ) {
+                            try {
+                                arr = JSON.parse(val);
+                            } catch {
+                                try {
+                                    arr = JSON.parse(val.replace(/'/g, '"'));
+                                } catch {
+                                    arr = val
+                                        .slice(1, -1)
+                                        .split(',')
+                                        .map((s) => s.replace(/['\"]/g, '').trim());
+                                }
+                            }
+                        } else if (typeof val === 'string') {
+                            arr = val.split(',').map((s) => s.trim());
+                        }
+                        if (arr) {
+                            // Filter out invalid fields instead of returning error
+                            const validFields = arr.filter(f => isValidField(f));
+                            if (validFields.length > 0) {
+                                // Always include _id in select
+                                const fieldsWithId = validFields.includes('_id') ? validFields : ['_id', ...validFields];
+                                q = q.select(...fieldsWithId);
+                            }
+                        }
+                    }
+
                     if (cfg.GET!.hooks?.beforeQuery)
                         q = await cfg.GET!.hooks.beforeQuery(q, req);
                     const doc = await q.first();
@@ -346,10 +384,59 @@ export function createSkibbaExpress(
                     }
                     const needMeta = page !== undefined && limit !== undefined;
 
-                    const orderBy = qParams.orderBy as string | undefined;
-                    const sortDir = (
-                        (qParams.sort as string) ?? 'asc'
-                    ).toLowerCase();
+                    // Support both orderBy/sort and sort/order parameter patterns
+                    let orderBy: string | undefined;
+                    let sortDir: string;
+                    
+                    if (qParams.orderBy) {
+                        // Pattern: orderBy=field&sort=direction
+                        orderBy = qParams.orderBy as string;
+                        sortDir = ((qParams.sort as string) ?? 'asc').toLowerCase();
+                    } else if (qParams.sort && qParams.order) {
+                        // Pattern: sort=field&order=direction  
+                        orderBy = qParams.sort as string;
+                        sortDir = ((qParams.order as string) ?? 'asc').toLowerCase();
+                    } else if (qParams.sort) {
+                        // Pattern: sort=direction (no field specified)
+                        sortDir = ((qParams.sort as string) ?? 'asc').toLowerCase();
+                    } else {
+                        sortDir = 'asc';
+                    }
+
+                    // Parse select fields
+                    let selectFields: string[] | undefined;
+                    if (qParams.select !== undefined) {
+                        let arr: any[] | undefined;
+                        const val = qParams.select;
+                        if (Array.isArray(val)) arr = val as any[];
+                        else if (
+                            typeof val === 'string' &&
+                            val.startsWith('[') &&
+                            val.endsWith(']')
+                        ) {
+                            try {
+                                arr = JSON.parse(val);
+                            } catch {
+                                try {
+                                    arr = JSON.parse(val.replace(/'/g, '"'));
+                                } catch {
+                                    arr = val
+                                        .slice(1, -1)
+                                        .split(',')
+                                        .map((s) => s.replace(/['\"]/g, '').trim());
+                                }
+                            }
+                        } else if (typeof val === 'string') {
+                            arr = val.split(',').map((s) => s.trim());
+                        }
+                        if (arr) {
+                            // Filter out invalid fields instead of returning error
+                            const validFields = arr.filter(f => isValidField(f));
+                            if (validFields.length > 0) {
+                                selectFields = validFields;
+                            }
+                        }
+                    }
 
                     if (orderBy && !['asc', 'desc'].includes(sortDir)) {
                         res.status(400).json({
@@ -376,6 +463,8 @@ export function createSkibbaExpress(
                         'offset',
                         'orderBy',
                         'sort',
+                        'order',
+                        'select',
                     ]);
 
                     for (const [rawKey, value] of Object.entries(qParams)) {
@@ -553,6 +642,79 @@ export function createSkibbaExpress(
 
                     /* apply predicates */
                     let rowQ = buildQuery(collection.query());
+                    
+                    // Check if we're selecting nested properties from array fields
+                    let hasArrayFieldSelection = false;
+                    let arraySelectFields: string[] = [];
+                    let nonArraySelectFields: string[] = [];
+                    
+                    if (selectFields) {
+                        for (const field of selectFields) {
+                            const parts = field.split('.');
+                            if (parts.length > 1) {
+                                const rootField = parts[0];
+                                // Check if the root field is an array field using schema validation
+                                try {
+                                    const schema = collection.getSchema();
+                                    let isArrayField = false;
+                                    
+                                    if (schema && schema._def && schema._def.shape) {
+                                        const fieldSchema = schema._def.shape()[rootField];
+                                        if (fieldSchema) {
+                                            isArrayField = 
+                                                fieldSchema._def?.typeName === 'ZodArray' ||
+                                                (fieldSchema._def?.typeName === 'ZodOptional' &&
+                                                 fieldSchema._def?.innerType?._def?.typeName === 'ZodArray') ||
+                                                (fieldSchema._def?.typeName === 'ZodDefault' &&
+                                                 fieldSchema._def?.innerType?._def?.typeName === 'ZodArray');
+                                        }
+                                    }
+                                    
+                                    if (isArrayField) {
+                                        hasArrayFieldSelection = true;
+                                        if (!arraySelectFields.includes(rootField)) {
+                                            arraySelectFields.push(rootField);
+                                        }
+                                    } else {
+                                        nonArraySelectFields.push(field);
+                                    }
+                                } catch (e) {
+                                    // Fallback: assume it's an array field if the field name suggests it
+                                    const isArrayField = 
+                                        rootField === 'items' ||
+                                        rootField === 'departments' ||
+                                        rootField === 'roles' ||
+                                        rootField === 'tags' ||
+                                        rootField.includes('array') ||
+                                        rootField.includes('list') ||
+                                        (rootField.endsWith('s') && rootField !== 'address' && rootField !== 'preferences' && rootField !== 'coordinates');
+                                    
+                                    if (isArrayField) {
+                                        hasArrayFieldSelection = true;
+                                        if (!arraySelectFields.includes(rootField)) {
+                                            arraySelectFields.push(rootField);
+                                        }
+                                    } else {
+                                        nonArraySelectFields.push(field);
+                                    }
+                                }
+                            } else {
+                                nonArraySelectFields.push(field);
+                            }
+                        }
+                        
+                        // If we have array field selections, we need to handle this differently
+                        if (hasArrayFieldSelection) {
+                            // Include both non-array selected fields and full array fields
+                            const fieldsForSelect = [...nonArraySelectFields, ...arraySelectFields];
+                            const fieldsWithId = fieldsForSelect.includes('_id') ? fieldsForSelect : ['_id', ...fieldsForSelect];
+                            rowQ = rowQ.select(...fieldsWithId);
+                        } else {
+                            // Normal case: use original select logic
+                            const fieldsWithId = selectFields.includes('_id') ? selectFields : ['_id', ...selectFields];
+                            rowQ = rowQ.select(...fieldsWithId);
+                        }
+                    }
                     let countQ: any;
                     if (needMeta) {
                         countQ = buildQuery(collection.query());
@@ -576,9 +738,143 @@ export function createSkibbaExpress(
                     const slicedRows = needMeta ? rows.slice(0, limit) : rows;
 
                     /* post‑hook */
-                    const finalRows = cfg.GET!.hooks?.afterQuery
+                    let finalRows = cfg.GET!.hooks?.afterQuery
                         ? await cfg.GET!.hooks.afterQuery(slicedRows, req)
                         : slicedRows;
+
+                    // Post-process array field selections if needed
+                    if (hasArrayFieldSelection && selectFields) {
+                        finalRows = finalRows.map((row: any) => {
+                            const processedRow = { ...row };
+                            
+                            // Get the original selected fields that were array-related
+                            const arrayFieldSelections = selectFields.filter(field => {
+                                const parts = field.split('.');
+                                return parts.length > 1 && arraySelectFields.includes(parts[0]);
+                            });
+                            
+                            if (arrayFieldSelections.length > 0) {
+                                // Group selections by root array field
+                                const selectionsByArray: { [key: string]: string[] } = {};
+                                arrayFieldSelections.forEach(field => {
+                                    const parts = field.split('.');
+                                    const rootField = parts[0];
+                                    const subPath = parts.slice(1).join('.');
+                                    if (!selectionsByArray[rootField]) {
+                                        selectionsByArray[rootField] = [];
+                                    }
+                                    selectionsByArray[rootField].push(subPath);
+                                });
+                                
+                                // Process each array field
+                                Object.entries(selectionsByArray).forEach(([arrayField, subPaths]) => {
+                                    const originalArray = processedRow[arrayField];
+                                    if (Array.isArray(originalArray)) {
+                                        // Create filtered array with only selected sub-fields
+                                        processedRow[arrayField] = originalArray.map((item: any) => {
+                                            const filteredItem: any = {};
+                                            subPaths.forEach(subPath => {
+                                                const pathParts = subPath.split('.');
+                                                let source = item;
+                                                let target = filteredItem;
+                                                
+                                                // Navigate and copy the nested structure
+                                                for (let i = 0; i < pathParts.length; i++) {
+                                                    const part = pathParts[i];
+                                                    if (i === pathParts.length - 1) {
+                                                        // Last part - copy the value
+                                                        if (source && source.hasOwnProperty(part)) {
+                                                            target[part] = source[part];
+                                                        }
+                                                    } else {
+                                                        // Intermediate part - ensure nested structure exists
+                                                        if (source && source.hasOwnProperty(part)) {
+                                                            if (!target[part]) target[part] = {};
+                                                            source = source[part];
+                                                            target = target[part];
+                                                        } else {
+                                                            break; // Path doesn't exist
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                            return filteredItem;
+                                        });
+                                    }
+                                });
+                            }
+                            
+                            return processedRow;
+                        });
+                    }
+
+                    // Post-process nested object field selections if needed  
+                    if (selectFields && selectFields.length > 0) {
+                        finalRows = finalRows.map((row: any) => {
+                            const processedRow = { ...row };
+                            
+                            // Filter nested object fields to only include requested sub-fields
+                            const nestedFieldSelections = selectFields.filter(field => {
+                                const parts = field.split('.');
+                                return parts.length > 1 && !arraySelectFields.includes(parts[0]);
+                            });
+                            
+                            if (nestedFieldSelections.length > 0) {
+                                // Group selections by root object field
+                                const selectionsByObject: { [key: string]: string[] } = {};
+                                nestedFieldSelections.forEach(field => {
+                                    const parts = field.split('.');
+                                    const rootField = parts[0];
+                                    const subPath = parts.slice(1).join('.');
+                                    if (!selectionsByObject[rootField]) {
+                                        selectionsByObject[rootField] = [];
+                                    }
+                                    selectionsByObject[rootField].push(subPath);
+                                });
+                                
+                                // Process each nested object field
+                                Object.entries(selectionsByObject).forEach(([objectField, subPaths]) => {
+                                    const originalObject = processedRow[objectField];
+                                    if (originalObject && typeof originalObject === 'object' && !Array.isArray(originalObject)) {
+                                        // Create filtered object with only selected sub-fields
+                                        const filteredObject: any = {};
+                                        subPaths.forEach(subPath => {
+                                            const pathParts = subPath.split('.');
+                                            let source = originalObject;
+                                            let target = filteredObject;
+                                            
+                                            // Navigate and copy the nested structure
+                                            for (let i = 0; i < pathParts.length; i++) {
+                                                const part = pathParts[i];
+                                                if (i === pathParts.length - 1) {
+                                                    // Last part - copy the value
+                                                    if (source && source.hasOwnProperty(part)) {
+                                                        target[part] = source[part];
+                                                    }
+                                                } else {
+                                                    // Intermediate part - ensure nested structure exists
+                                                    if (source && source.hasOwnProperty(part)) {
+                                                        if (!target[part]) target[part] = {};
+                                                        source = source[part];
+                                                        target = target[part];
+                                                    } else {
+                                                        break; // Path doesn't exist
+                                                    }
+                                                }
+                                            }
+                                        });
+                                        
+                                        // Only replace if we actually found and copied some fields
+                                        if (Object.keys(filteredObject).length > 0) {
+                                            processedRow[objectField] = filteredObject;
+                                        }
+                                    }
+                                });
+                            }
+                            
+                            return processedRow;
+                        });
+                    }
 
                     if (needMeta) {
                         let totalCount: number;
