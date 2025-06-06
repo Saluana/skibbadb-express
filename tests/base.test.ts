@@ -12,7 +12,7 @@ describe('SkibbaDB Express Integration', () => {
     let server: any;
 
     const userSchema = z.object({
-        id: z.string(),
+        _id: z.string(),
         name: z.string(),
         email: z.string().email(),
         role: z.string().default('user'),
@@ -23,7 +23,7 @@ describe('SkibbaDB Express Integration', () => {
     });
 
     const postSchema = z.object({
-        id: z.string(),
+        _id: z.string(),
         title: z.string(),
         content: z.string(),
         authorId: z.string(),
@@ -85,26 +85,26 @@ describe('SkibbaDB Express Integration', () => {
             },
             PUT: {
                 hooks: {
-                    beforeUpdate: async (id, data, req) => {
+                    beforeUpdate: async (_id, data, req) => {
                         return {
                             ...data,
                             updatedAt: new Date().toISOString(),
                         };
                     },
                     afterUpdate: async (result, req) => {
-                        console.log(`User updated: ${result.id}`);
+                        console.log(`User updated: ${result._id}`);
                         return result;
                     },
                 },
             },
             DELETE: {
                 hooks: {
-                    beforeDelete: async (id, req) => {
-                        console.log(`Attempting to delete user: ${id}`);
+                    beforeDelete: async (_id, req) => {
+                        console.log(`Attempting to delete user: ${_id}`);
                         return true; // Allow deletion
                     },
-                    afterDelete: async (id, req) => {
-                        console.log(`User deleted: ${id}`);
+                    afterDelete: async (_id, req) => {
+                        console.log(`User deleted: ${_id}`);
                     },
                 },
             },
@@ -152,7 +152,7 @@ describe('SkibbaDB Express Integration', () => {
     describe('Basic CRUD Operations', () => {
         it('should create a new user', async () => {
             const userData = {
-                id: 'user1',
+                _id: 'user1',
                 name: 'John Doe',
                 email: 'john@example.com',
                 role: 'admin',
@@ -166,7 +166,7 @@ describe('SkibbaDB Express Integration', () => {
                 .expect(201);
 
             expect(response.body).toMatchObject({
-                id: 'user1',
+                _id: 'user1',
                 name: 'John Doe',
                 email: 'john@example.com',
                 role: 'admin',
@@ -179,7 +179,7 @@ describe('SkibbaDB Express Integration', () => {
         it('should get a user by ID', async () => {
             // First create a user
             const userData = {
-                id: 'user2',
+                _id: 'user2',
                 name: 'Jane Smith',
                 email: 'jane@example.com',
                 age: 25,
@@ -196,7 +196,7 @@ describe('SkibbaDB Express Integration', () => {
                 .expect(200);
 
             expect(response.body).toMatchObject({
-                id: 'user2',
+                _id: 'user2',
                 name: 'Jane Smith',
                 email: 'jane@example.com',
                 age: 25,
@@ -206,9 +206,9 @@ describe('SkibbaDB Express Integration', () => {
         it('should get all users', async () => {
             // Create multiple users
             const users = [
-                { id: 'user3', name: 'Alice', email: 'alice@example.com', age: 28 },
-                { id: 'user4', name: 'Bob', email: 'bob@example.com', age: 32 },
-                { id: 'user5', name: 'Charlie', email: 'charlie@example.com', age: 24 },
+                { _id: 'user3', name: 'Alice', email: 'alice@example.com', age: 28 },
+                { _id: 'user4', name: 'Bob', email: 'bob@example.com', age: 32 },
+                { _id: 'user5', name: 'Charlie', email: 'charlie@example.com', age: 24 },
             ];
 
             for (const user of users) {
@@ -229,7 +229,7 @@ describe('SkibbaDB Express Integration', () => {
         it('should update a user', async () => {
             // Create a user
             const userData = {
-                id: 'user6',
+                _id: 'user6',
                 name: 'David',
                 email: 'david@example.com',
                 age: 35,
@@ -253,7 +253,7 @@ describe('SkibbaDB Express Integration', () => {
                 .expect(200);
 
             expect(response.body).toMatchObject({
-                id: 'user6',
+                _id: 'user6',
                 name: 'David Updated',
                 email: 'david@example.com',
                 age: 36,
@@ -265,7 +265,7 @@ describe('SkibbaDB Express Integration', () => {
         it('should delete a user', async () => {
             // Create a user
             const userData = {
-                id: 'user7',
+                _id: 'user7',
                 name: 'Eve',
                 email: 'eve@example.com',
             };
@@ -291,11 +291,11 @@ describe('SkibbaDB Express Integration', () => {
         beforeEach(async () => {
             // Create test data
             const users = [
-                { id: 'u1', name: 'Alice', email: 'alice@test.com', age: 25, role: 'user', isActive: true },
-                { id: 'u2', name: 'Bob', email: 'bob@test.com', age: 30, role: 'admin', isActive: true },
-                { id: 'u3', name: 'Charlie', email: 'charlie@test.com', age: 35, role: 'user', isActive: false },
-                { id: 'u4', name: 'David', email: 'david@test.com', age: 28, role: 'moderator', isActive: true },
-                { id: 'u5', name: 'Eve', email: 'eve@test.com', age: 22, role: 'user', isActive: true },
+                { _id: 'u1', name: 'Alice', email: 'alice@test.com', age: 25, role: 'user', isActive: true },
+                { _id: 'u2', name: 'Bob', email: 'bob@test.com', age: 30, role: 'admin', isActive: true },
+                { _id: 'u3', name: 'Charlie', email: 'charlie@test.com', age: 35, role: 'user', isActive: false },
+                { _id: 'u4', name: 'David', email: 'david@test.com', age: 28, role: 'moderator', isActive: true },
+                { _id: 'u5', name: 'Eve', email: 'eve@test.com', age: 22, role: 'user', isActive: true },
             ];
 
             for (const user of users) {
@@ -376,7 +376,7 @@ describe('SkibbaDB Express Integration', () => {
         it('should handle multiple collections independently', async () => {
             // Create a user
             const user = {
-                id: 'author1',
+                _id: 'author1',
                 name: 'Author One',
                 email: 'author@example.com',
             };
@@ -388,7 +388,7 @@ describe('SkibbaDB Express Integration', () => {
 
             // Create a post
             const post = {
-                id: 'post1',
+                _id: 'post1',
                 title: 'My First Post',
                 content: 'This is the content of my first post.',
                 authorId: 'author1',
@@ -402,7 +402,7 @@ describe('SkibbaDB Express Integration', () => {
                 .expect(201);
 
             expect(postResponse.body).toMatchObject({
-                id: 'post1',
+                _id: 'post1',
                 title: 'My First Post',
                 content: 'This is the content of my first post.',
                 authorId: 'author1',
@@ -428,7 +428,7 @@ describe('SkibbaDB Express Integration', () => {
     describe('Error Handling', () => {
         it('should handle validation errors', async () => {
             const invalidUser = {
-                id: 'invalid',
+                _id: 'invalid',
                 name: '', // Empty name should fail validation
                 email: 'not-an-email', // Invalid email
             };
@@ -444,13 +444,13 @@ describe('SkibbaDB Express Integration', () => {
 
         it('should handle duplicate unique field errors', async () => {
             const user1 = {
-                id: 'user_dup1',
+                _id: 'user_dup1',
                 name: 'User One',
                 email: 'duplicate@example.com',
             };
 
             const user2 = {
-                id: 'user_dup2',
+                _id: 'user_dup2',
                 name: 'User Two',
                 email: 'duplicate@example.com', // Same email
             };
@@ -526,7 +526,7 @@ describe('SkibbaDB Express Integration', () => {
         it('should reject array request bodies', async () => {
             const response = await request(app)
                 .post('/api/users')
-                .send([{ id: 'test', name: 'Test' }])
+                .send([{ _id: 'test', name: 'Test' }])
                 .expect(400);
 
             expect(response.body.error).toBe('Invalid request body');
@@ -552,7 +552,7 @@ describe('SkibbaDB Express Integration', () => {
 
             // Create user (tests beforeCreate and afterCreate hooks)
             const userData = {
-                id: 'hook_test',
+                _id: 'hook_test',
                 name: 'Hook Test User',
                 email: 'hooktest@example.com',
             };

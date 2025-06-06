@@ -7,7 +7,7 @@ import { describe, beforeAll, afterAll, test, expect } from 'vitest';
 
 // Test schema with array field
 const UserSchema = z.object({
-    id: z.string(),
+    _id: z.string(),
     name: z.string(),
     roles: z.array(z.string()),
     email: z.string().email(),
@@ -24,12 +24,6 @@ describe('Array Filtering REST API Tests', () => {
         database = createDB({ path: './test-data' });
         usersCollection = database.collection('test_users', UserSchema);
 
-        usersCollection.insert({
-            id: 'test-1',
-            name: 'Test User 1',
-            roles: [],
-            email: '',
-        });
 
         // Create Express app with SkibbaDB
         const expressApp = express();
@@ -47,25 +41,25 @@ describe('Array Filtering REST API Tests', () => {
         // Insert test data
         const testUsers = [
             {
-                id: 'user1',
+                _id: 'user1',
                 name: 'Admin User',
                 roles: ['admin', 'user'],
                 email: 'admin@test.com',
             },
             {
-                id: 'user2',
+                _id: 'user2',
                 name: 'Editor User',
                 roles: ['editor', 'user'],
                 email: 'editor@test.com',
             },
             {
-                id: 'user3',
+                _id: 'user3',
                 name: 'Super Admin',
                 roles: ['superadmin', 'admin', 'user'],
                 email: 'superadmin@test.com',
             },
             {
-                id: 'user4',
+                _id: 'user4',
                 name: 'Regular User',
                 roles: ['user'],
                 email: 'user@test.com',
@@ -77,7 +71,7 @@ describe('Array Filtering REST API Tests', () => {
             // Delete all existing users first
             const existingUsers = await usersCollection.query().toArray();
             for (const user of existingUsers) {
-                await usersCollection.delete(user.id);
+                await usersCollection.delete(user._id);
             }
         } catch (e) {
             // Collection might be empty
@@ -91,7 +85,7 @@ describe('Array Filtering REST API Tests', () => {
             } catch (e) {
                 if (e.message.includes('already exists')) {
                     // User already exists, update instead
-                    await usersCollection.put(user.id, user);
+                    await usersCollection.put(user._id, user);
                 } else {
                     throw e;
                 }
@@ -104,7 +98,7 @@ describe('Array Filtering REST API Tests', () => {
         try {
             const existingUsers = await usersCollection.query().toArray();
             for (const user of existingUsers) {
-                await usersCollection.delete(user.id);
+                await usersCollection.delete(user._id);
             }
         } catch (e) {
             // Ignore cleanup errors
@@ -127,7 +121,7 @@ describe('Array Filtering REST API Tests', () => {
             expect(Array.isArray(response.body)).toBe(true);
 
             if (response.body.length > 0) {
-                const userIds = response.body.map((user) => user.id);
+                const userIds = response.body.map((user) => user._id);
                 expect(userIds).toContain('user1');
                 expect(userIds).toContain('user3');
                 expect(userIds).not.toContain('user2');
@@ -150,7 +144,7 @@ describe('Array Filtering REST API Tests', () => {
             );
 
             if (response.body.length > 0) {
-                const userIds = response.body.map((user) => user.id);
+                const userIds = response.body.map((user) => user._id);
                 expect(userIds).toContain('user2');
                 expect(userIds).not.toContain('user1');
             } else {
@@ -183,7 +177,7 @@ describe('Array Filtering REST API Tests', () => {
 
             if (response.body.length > 0) {
                 // Should match both 'admin' and 'superadmin'
-                const userIds = response.body.map((user) => user.id);
+                const userIds = response.body.map((user) => user._id);
                 expect(userIds).toContain('user1');
                 expect(userIds).toContain('user3'); // has 'superadmin'
             } else {
@@ -362,25 +356,25 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         // Insert test data
         const testUsers = [
             {
-                id: 'user1',
+                _id: 'user1',
                 name: 'Admin User',
                 roles: ['admin', 'user'],
                 email: 'admin@test.com',
             },
             {
-                id: 'user2',
+                _id: 'user2',
                 name: 'Editor User',
                 roles: ['editor', 'user'],
                 email: 'editor@test.com',
             },
             {
-                id: 'user3',
+                _id: 'user3',
                 name: 'Super Admin',
                 roles: ['superadmin', 'admin', 'user'],
                 email: 'superadmin@test.com',
             },
             {
-                id: 'user4',
+                _id: 'user4',
                 name: 'Regular User',
                 roles: ['user'],
                 email: 'user@test.com',

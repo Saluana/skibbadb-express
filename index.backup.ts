@@ -429,7 +429,7 @@ export function createSkibbaExpress(
                         const sanitizedId = sanitizeInput(id);
 
                         let query = collection
-                            .where('id' as any)
+                            .where('_id' as any)
                             .eq(sanitizedId);
 
                         // Apply beforeQuery hook

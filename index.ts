@@ -299,7 +299,7 @@ export function createSkibbaExpress(
         if (cfg.GET) {
             router.get('/:id', ...methodMW(cfg.GET), async (req, res, next) => {
                 try {
-                    let q = collection.where('id' as any).eq(req.params.id);
+                    let q = collection.where('_id' as any).eq(req.params.id);
                     if (cfg.GET!.hooks?.beforeQuery)
                         q = await cfg.GET!.hooks.beforeQuery(q, req);
                     const doc = await q.first();
