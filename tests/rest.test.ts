@@ -342,6 +342,33 @@ describe('Array Filtering REST API Tests', () => {
             }
         });
     });
+
+    describe('Select query parameter', () => {
+        test('should return only selected fields for list', async () => {
+            const response = await request(app)
+                .get("/test_users?select=['name','email']")
+                .expect(200);
+
+            expect(Array.isArray(response.body)).toBe(true);
+            if (response.body.length > 0) {
+                const user = response.body[0];
+                expect(user).toHaveProperty('name');
+                expect(user).toHaveProperty('email');
+                expect(user).not.toHaveProperty('roles');
+            }
+        });
+
+        test('should select fields when fetching by id', async () => {
+            const response = await request(app)
+                .get("/test_users/user1?select=['name']")
+                .expect(200);
+
+            expect(response).toBeDefined();
+            expect(response.body).toHaveProperty('name');
+            expect(response.body).not.toHaveProperty('roles');
+            expect(response.body).not.toHaveProperty('email');
+        });
+    });
 });
 
 // If you want to run this as a standalone script:

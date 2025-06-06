@@ -299,7 +299,48 @@ export function createSkibbaExpress(
         if (cfg.GET) {
             router.get('/:id', ...methodMW(cfg.GET), async (req, res, next) => {
                 try {
+                    const qParams = req.query as Record<string, any>;
                     let q = collection.where('_id' as any).eq(req.params.id);
+
+                    // Optional select fields
+                    if (qParams.select !== undefined) {
+                        let arr: any[] | undefined;
+                        const val = qParams.select;
+                        if (Array.isArray(val)) arr = val as any[];
+                        else if (
+                            typeof val === 'string' &&
+                            val.startsWith('[') &&
+                            val.endsWith(']')
+                        ) {
+                            try {
+                                arr = JSON.parse(val);
+                            } catch {
+                                try {
+                                    arr = JSON.parse(val.replace(/'/g, '"'));
+                                } catch {
+                                    arr = val
+                                        .slice(1, -1)
+                                        .split(',')
+                                        .map((s) => s.replace(/['\"]/g, '').trim());
+                                }
+                            }
+                        } else if (typeof val === 'string') {
+                            arr = val.split(',').map((s) => s.trim());
+                        }
+                        if (arr) {
+                            for (const f of arr) {
+                                if (!isValidField(f)) {
+                                    res.status(400).json({
+                                        error: 'Invalid select parameter',
+                                        message: `Invalid field ${f}`,
+                                    });
+                                    return;
+                                }
+                            }
+                            q = q.select(...arr);
+                        }
+                    }
+
                     if (cfg.GET!.hooks?.beforeQuery)
                         q = await cfg.GET!.hooks.beforeQuery(q, req);
                     const doc = await q.first();
@@ -351,6 +392,46 @@ export function createSkibbaExpress(
                         (qParams.sort as string) ?? 'asc'
                     ).toLowerCase();
 
+                    // Parse select fields
+                    let selectFields: string[] | undefined;
+                    if (qParams.select !== undefined) {
+                        let arr: any[] | undefined;
+                        const val = qParams.select;
+                        if (Array.isArray(val)) arr = val as any[];
+                        else if (
+                            typeof val === 'string' &&
+                            val.startsWith('[') &&
+                            val.endsWith(']')
+                        ) {
+                            try {
+                                arr = JSON.parse(val);
+                            } catch {
+                                try {
+                                    arr = JSON.parse(val.replace(/'/g, '"'));
+                                } catch {
+                                    arr = val
+                                        .slice(1, -1)
+                                        .split(',')
+                                        .map((s) => s.replace(/['\"]/g, '').trim());
+                                }
+                            }
+                        } else if (typeof val === 'string') {
+                            arr = val.split(',').map((s) => s.trim());
+                        }
+                        if (arr) {
+                            for (const f of arr) {
+                                if (!isValidField(f)) {
+                                    res.status(400).json({
+                                        error: 'Invalid select parameter',
+                                        message: `Invalid field ${f}`,
+                                    });
+                                    return;
+                                }
+                            }
+                            selectFields = arr;
+                        }
+                    }
+
                     if (orderBy && !['asc', 'desc'].includes(sortDir)) {
                         res.status(400).json({
                             error: 'Invalid sort parameter',
@@ -376,6 +457,7 @@ export function createSkibbaExpress(
                         'offset',
                         'orderBy',
                         'sort',
+                        'select',
                     ]);
 
                     for (const [rawKey, value] of Object.entries(qParams)) {
@@ -553,6 +635,9 @@ export function createSkibbaExpress(
 
                     /* apply predicates */
                     let rowQ = buildQuery(collection.query());
+                    if (selectFields) {
+                        rowQ = rowQ.select(...selectFields);
+                    }
                     let countQ: any;
                     if (needMeta) {
                         countQ = buildQuery(collection.query());
