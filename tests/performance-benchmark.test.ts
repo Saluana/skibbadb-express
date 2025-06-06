@@ -26,7 +26,7 @@ const BENCHMARK_CONFIG = {
 
 // User schema for testing
 const userSchema = z.object({
-    id: z.string(),
+    _id: z.string(),
     name: z.string(),
     email: z.string().email(),
     age: z.number().min(1).max(150),
@@ -114,7 +114,7 @@ class PerformanceBenchmark {
     generateUser(index: number) {
         const timestamp = Date.now();
         return {
-            id: `user${index}-${timestamp}`,
+            _id: `user${index}-${timestamp}`,
             name: `User ${index}`,
             email: `user${index}-${timestamp}@test.com`,
             age: 20 + (index % 50), // Ages 20-69
@@ -188,7 +188,7 @@ class PerformanceBenchmark {
             const uniqueId = `create-current-${Date.now()}-${Math.random()}`;
             const uniqueUser = {
                 ...testUser,
-                id: uniqueId,
+                _id: uniqueId,
                 email: `test-${uniqueId}@test.com`,
             };
             const response = await request(this.currentApp)
@@ -213,7 +213,7 @@ class PerformanceBenchmark {
             const uniqueId = `create-backup-${Date.now()}-${Math.random()}`;
             const uniqueUser = {
                 ...testUser,
-                id: uniqueId,
+                _id: uniqueId,
                 email: `test-${uniqueId}@test.com`,
             };
             await request(this.backupApp)
@@ -227,7 +227,7 @@ class PerformanceBenchmark {
         // Setup data for READ/UPDATE/DELETE tests
         const readUser = {
             ...testUser,
-            id: 'read-test-user',
+            _id: 'read-test-user',
             email: `read-test-user-${Date.now()}@test.com`,
         };
         await request(this.currentApp).post('/users').send(readUser);
@@ -284,7 +284,7 @@ class PerformanceBenchmark {
             const baseUser = this.generateUser(i);
             return {
                 ...baseUser,
-                id: `pagination-${size}-${i}`,
+                _id: `pagination-${size}-${i}`,
                 email: `pagination-${size}-${i}@test.com`,
             };
         });
@@ -339,7 +339,7 @@ class PerformanceBenchmark {
                 const baseUser = this.generateUser(i);
                 return {
                     ...baseUser,
-                    id: `filtering-${i}`,
+                    _id: `filtering-${i}`,
                     email: `filtering-${i}@test.com`,
                 };
             }
@@ -426,7 +426,7 @@ class PerformanceBenchmark {
                 const baseUser = this.generateUser(i);
                 return {
                     ...baseUser,
-                    id: `complex-${i}`,
+                    _id: `complex-${i}`,
                     email: `complex-${i}@test.com`,
                 };
             }
@@ -503,14 +503,14 @@ class PerformanceBenchmark {
             // Delete all users from current
             if (currentUsers.body && Array.isArray(currentUsers.body)) {
                 for (const user of currentUsers.body) {
-                    await request(this.currentApp).delete(`/users/${user.id}`);
+                    await request(this.currentApp).delete(`/users/${user._id}`);
                 }
             }
 
             // Delete all users from backup
             if (backupUsers.body && Array.isArray(backupUsers.body)) {
                 for (const user of backupUsers.body) {
-                    await request(this.backupApp).delete(`/users/${user.id}`);
+                    await request(this.backupApp).delete(`/users/${user._id}`);
                 }
             }
         } catch (error) {

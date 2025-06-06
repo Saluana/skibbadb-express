@@ -21,7 +21,7 @@ const testDb = new Database({ path: ':memory:' });
 
 // User schema for testing
 const userSchema = z.object({
-    id: z.string(),
+    _id: z.string(),
     name: z.string(),
     email: z.string().email(),
     role: z.string().default('user'),
@@ -79,7 +79,7 @@ skibba.useCollection(users, {
     PUT: {
         middleware: [securityMiddleware()],
         hooks: {
-            beforeUpdate: async (id, data, req) => ({
+            beforeUpdate: async (_id, data, req) => ({
                 ...data,
                 updatedAt: new Date().toISOString(),
             }),
@@ -181,7 +181,7 @@ async function testXSSProtection() {
             const response = await request(app)
                 .post('/api/users')
                 .send({
-                    id: `xss-test-${Date.now()}`,
+                    _id: `xss-test-${Date.now()}`,
                     name: payload,
                     email: `xss-${Date.now()}@example.com`,
                     role: 'user',
@@ -237,7 +237,7 @@ async function testSQLInjectionProtection() {
             const response = await request(app)
                 .post('/api/users')
                 .send({
-                    id: `sql-test-${Date.now()}`,
+                    _id: `sql-test-${Date.now()}`,
                     name: payload,
                     email: `sql-${Date.now()}@example.com`,
                     role: 'user',
@@ -272,7 +272,7 @@ async function testInputValidation() {
     const largeString = 'A'.repeat(50000);
     try {
         const response = await request(app).post('/api/users').send({
-            id: 'large-input-test',
+            _id: 'large-input-test',
             name: largeString,
             email: 'large@example.com',
             role: 'user',
@@ -319,7 +319,7 @@ async function testKeyValidation() {
     for (const key of dangerousKeys) {
         try {
             const testData: any = {
-                id: `key-test-${Date.now()}`,
+                _id: `key-test-${Date.now()}`,
                 email: `keytest-${Date.now()}@example.com`,
                 role: 'user',
             };
@@ -352,7 +352,7 @@ async function testKeyValidation() {
     // Test that normal keys still work
     try {
         const normalData = {
-            id: `normal-key-test-${Date.now()}`,
+            _id: `normal-key-test-${Date.now()}`,
             name: 'Normal User',
             email: `normal-${Date.now()}@example.com`,
             role: 'user',
@@ -386,7 +386,7 @@ async function testMaliciousPayloads() {
                 .post('/api/users')
 
                 .send({
-                    id: `malicious-test-${Date.now()}`,
+                    _id: `malicious-test-${Date.now()}`,
                     name: payload,
                     email: `malicious-${Date.now()}@example.com`,
                     role: 'user',

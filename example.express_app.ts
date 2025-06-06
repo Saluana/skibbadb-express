@@ -18,7 +18,7 @@ const db = new Database({ path: 'example.db' });
 
 // Define a simple users collection schema
 const usersSchema = z.object({
-    id: z.string(),
+    _id: z.string(),
     name: z.string(),
     email: z.string().email(),
     role: z.string().default('user'),
@@ -74,7 +74,7 @@ skibba.useCollection(users, {
             validateUserInput,
         ],
         hooks: {
-            beforeUpdate: async (id, data, req) => ({
+            beforeUpdate: async (_id, data, req) => ({
                 ...data,
                 updatedAt: new Date().toISOString(),
             }),
@@ -106,10 +106,10 @@ app.get('/', (req, res) => {
         endpoints: {
             'GET /health': 'Health check',
             'GET /api/users': 'List users',
-            'GET /api/users/:id': 'Get user by ID',
+            'GET /api/users/:_id': 'Get user by ID',
             'POST /api/users': 'Create user (admin only)',
-            'PUT /api/users/:id': 'Update user (admin only)',
-            'DELETE /api/users/:id': 'Delete user (admin only)',
+            'PUT /api/users/:_id': 'Update user (admin only)',
+            'DELETE /api/users/:_id': 'Delete user (admin only)',
         },
     });
     return;
