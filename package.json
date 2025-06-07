@@ -40,14 +40,15 @@
         "clean": "rm -rf dist"
     },
     "peerDependencies": {
-        "express": "^4.0.0 || ^5.0.0",
-        "skibbadb": "^0.1.1"
+        "express": "^4.0.0 || ^5.0.0"
     },
     "dependencies": {
         "express-rate-limit": "^7.5.0",
         "helmet": "^8.1.0",
+        "skibbadb": "^0.1.2",
         "xss": "^1.0.15",
-        "zod": "^3.22.0"
+        "zod": "^3.22.0",
+        "zod-to-json-schema": "^3.24.5"
     },
     "devDependencies": {
         "@types/express": "^5.0.2",
