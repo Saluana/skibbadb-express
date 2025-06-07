@@ -1227,6 +1227,14 @@ export function createSkibbaExpress(
                     res.status(201).json(doc);
                     return;
                 } catch (e: any) {
+                    console.error('POST validation error:', {
+                        error: e.message,
+                        name: e.name,
+                        details: e.details,
+                        errors: e.errors,
+                        stack: e.stack,
+                        data: JSON.stringify(req.body, null, 2),
+                    });
                     handleDbErrors(e, res) || next(e);
                 }
             });
@@ -1312,13 +1320,18 @@ export function createSkibbaExpress(
 --------------------------------------------------------------------------- */
 const handleDbErrors = (err: any, res: Response) => {
     const msg = err.message ?? '';
+
+    // Handle Zod validation errors with detailed information
     if (err.name === 'ZodError') {
         res.status(400).json({
             error: 'Validation failed',
+            message: 'Schema validation failed',
             details: err.errors,
         });
         return true;
     }
+
+    // Handle database unique constraint violations
     if (msg.includes('UNIQUE constraint failed')) {
         const field =
             /UNIQUE constraint failed: \w+\.(\w+)/.exec(msg)?.[1] ?? 'field';
@@ -1328,20 +1341,36 @@ const handleDbErrors = (err: any, res: Response) => {
         });
         return true;
     }
+
+    // Handle document validation errors with more detail
     if (msg.includes('Document validation failed')) {
         res.status(400).json({
             error: 'Validation failed',
             message: 'Document validation failed',
+            details: {
+                originalError: msg,
+                // Include any additional error details if available
+                ...(err.details && { validationDetails: err.details }),
+                ...(err.errors && { validationErrors: err.errors }),
+                ...(err.cause && { cause: err.cause }),
+            },
         });
         return true;
     }
+
+    // Handle NOT NULL and other constraint violations
     if (msg.includes('NOT NULL') || msg.includes('constraint')) {
         res.status(400).json({
             error: 'Database constraint violation',
             message: `Database constraint violation: ${msg}`,
+            details: {
+                originalError: msg,
+                errorType: 'constraint_violation',
+            },
         });
         return true;
     }
+
     return false;
 };
 
