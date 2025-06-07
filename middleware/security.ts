@@ -217,14 +217,14 @@ export const securityMiddleware =
             if (bodySize > maxBody) {
                 res.status(413).json({
                     error: 'Request too large',
-                    message: 'Request body exceeds size limit',
+                    message: 'Request body size exceeds the configured limit',
                 });
                 return;
             }
             if (querySize > maxQuery) {
                 res.status(413).json({
                     error: 'Request too large',
-                    message: 'Query parameters exceed size limit',
+                    message: 'Query parameters size exceeds the configured limit',
                 });
                 return;
             }
@@ -238,7 +238,7 @@ export const securityMiddleware =
             if (!threat.isValid) {
                 res.status(400).json({
                     error: 'Security violation',
-                    message: threat.reason,
+                    message: `Potential security threat detected: ${threat.reason}`,
                 });
                 return;
             }
@@ -259,7 +259,7 @@ export const securityMiddleware =
             console.error('Security middleware error', err);
             res.status(500).json({
                 error: 'Internal security error',
-                message: 'Unable to process request',
+                message: 'Security middleware failed to process the request',
             });
         }
     };
@@ -350,7 +350,7 @@ export const validateUserInput = (
         if (!result.isValid) {
             res.status(400).json({
                 error: 'Security violation',
-                message: result.reason,
+                message: `Input failed security validation: ${result.reason}`,
             });
             return;
         }
