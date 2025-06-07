@@ -180,3 +180,4 @@ dist
 test-data
 test-data-shm
 test-data-wal
+bun.lockb

@@ -12,6 +12,7 @@ A powerful Express.js wrapper for SkibbaDB that automatically generates REST API
 -   🎣 **Hooks System** - Customize behavior with before/after hooks
 -   ✅ **Automatic Validation** - Zod schema validation on all operations
 -   🛡️ **Error Handling** - Comprehensive error responses with detailed messages
+-   📚 **OpenAPI Specs** - Automatic generation of OpenAPI documentation
 
 ## Quick Start
 
@@ -68,6 +69,9 @@ This automatically creates these endpoints:
 -   `PUT /api/users/:id` - Update user
 -   `DELETE /api/users/:id` - Delete user
 
+An OpenAPI 3 document is generated automatically. Retrieve it with
+`skibba.getOpenAPISpec()` or serve it via `skibba.serveOpenAPISpec()`.
+
 ## Pagination and Filtering
 
 ### Pagination
@@ -119,6 +123,7 @@ See [PAGINATION_FILTERING_EXAMPLES.md](./PAGINATION_FILTERING_EXAMPLES.md) for m
 -   [Complete Tutorial](./TUTORIAL.md) - Comprehensive guide with examples
 -   [Pagination & Filtering Examples](./PAGINATION_FILTERING_EXAMPLES.md) - Detailed API usage examples
 -   [Testing Guide](./tests/TESTING.md) - How to test your APIs
+-   Automatic OpenAPI spec generation via `getOpenAPISpec()`
 
 ## Installation
 

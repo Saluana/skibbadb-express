@@ -23,6 +23,7 @@ import {
     validateUserInput,
 } from './middleware/security.js';
 import rateLimit from 'express-rate-limit';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 export {
     sanitizeInput,
@@ -79,6 +80,8 @@ export interface SkibbaExpressApp extends express.Application {
         collection: Collection<T>,
         config?: CollectionConfig
     ): void;
+    getOpenAPISpec(): any;
+    serveOpenAPISpec(path?: string): void;
 }
 
 export type { Database, Collection } from 'skibbadb';
@@ -242,12 +245,137 @@ export function createSkibbaExpress(
         next(err);
     });
 
+    const openapiSpec: any = {
+        openapi: '3.0.0',
+        info: { title: 'SkibbaDB Express API', version: '1.0.0' },
+        paths: {},
+        components: { schemas: {} },
+    };
+
+    (app as any).getOpenAPISpec = () => openapiSpec;
+    (app as any).serveOpenAPISpec = (path = '/openapi.json') => {
+        app.get(path, (_req, res) => res.json(openapiSpec));
+    };
+
     (app as any).useCollection = function <
         T extends z.ZodType<any, z.ZodTypeDef, any>
     >(collection: Collection<T>, cfg: CollectionConfig = {}) {
         const base =
             cfg.basePath ?? `/${(collection as any).collectionSchema.name}`;
         const router = express.Router();
+
+        const collName = (collection as any).collectionSchema.name;
+        if (!openapiSpec.components.schemas[collName]) {
+            openapiSpec.components.schemas[collName] = zodToJsonSchema(
+                (collection as any).collectionSchema.schema,
+                collName
+            );
+        }
+        const listPath = base;
+        openapiSpec.paths[listPath] = openapiSpec.paths[listPath] || {};
+        openapiSpec.paths[listPath].get = {
+            summary: `List ${collName}`,
+            responses: {
+                200: {
+                    description: 'Successful response',
+                    content: {
+                        'application/json': {
+                            schema: {
+                                type: 'array',
+                                items: {
+                                    $ref: `#/components/schemas/${collName}`,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        };
+        openapiSpec.paths[listPath].post = {
+            summary: `Create ${collName}`,
+            requestBody: {
+                required: true,
+                content: {
+                    'application/json': {
+                        schema: {
+                            $ref: `#/components/schemas/${collName}`,
+                        },
+                    },
+                },
+            },
+            responses: {
+                201: {
+                    description: 'Created',
+                    content: {
+                        'application/json': {
+                            schema: {
+                                $ref: `#/components/schemas/${collName}`,
+                            },
+                        },
+                    },
+                },
+            },
+        };
+        const itemPath = `${base}/{id}`;
+        openapiSpec.paths[itemPath] = openapiSpec.paths[itemPath] || {};
+        const idParam = {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+        };
+        openapiSpec.paths[itemPath].get = {
+            summary: `Get ${collName} by id`,
+            parameters: [idParam],
+            responses: {
+                200: {
+                    description: 'Successful response',
+                    content: {
+                        'application/json': {
+                            schema: {
+                                $ref: `#/components/schemas/${collName}`,
+                            },
+                        },
+                    },
+                },
+                404: { description: 'Not found' },
+            },
+        };
+        openapiSpec.paths[itemPath].put = {
+            summary: `Update ${collName}`,
+            parameters: [idParam],
+            requestBody: {
+                required: true,
+                content: {
+                    'application/json': {
+                        schema: {
+                            $ref: `#/components/schemas/${collName}`,
+                        },
+                    },
+                },
+            },
+            responses: {
+                200: {
+                    description: 'Updated',
+                    content: {
+                        'application/json': {
+                            schema: {
+                                $ref: `#/components/schemas/${collName}`,
+                            },
+                        },
+                    },
+                },
+                404: { description: 'Not found' },
+            },
+        };
+        openapiSpec.paths[itemPath].delete = {
+            summary: `Delete ${collName}`,
+            parameters: [idParam],
+            responses: {
+                204: { description: 'Deleted' },
+                404: { description: 'Not found' },
+            },
+        };
 
         /* schema keys (cached one‑time) */
         const schemaShape = (() => {
