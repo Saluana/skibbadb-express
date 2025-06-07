@@ -404,7 +404,8 @@ export function createSkibbaExpress(
             if (typeof id !== 'string' || id.length > 100) {
                 res.status(400).json({
                     error: 'Invalid ID',
-                    message: 'Bad ID',
+                    message:
+                        'ID parameter must be a string up to 100 characters',
                 });
                 return;
             }
@@ -478,7 +479,10 @@ export function createSkibbaExpress(
                         q = await cfg.GET!.hooks.beforeQuery(q, req);
                     const doc = await q.first();
                     if (!doc) {
-                        res.status(404).json({ error: 'Not found' });
+                        res.status(404).json({
+                            error: 'Not found',
+                            message: `No document found with id ${req.params.id}`,
+                        });
                         return;
                     }
                     const out = cfg.GET!.hooks?.afterQuery
@@ -514,7 +518,7 @@ export function createSkibbaExpress(
                     } catch (err: any) {
                         res.status(400).json({
                             error: 'Invalid pagination parameter',
-                            message: err.message,
+                            message: `Invalid pagination parameter: ${err.message}`,
                         });
                         return;
                     }
@@ -587,15 +591,14 @@ export function createSkibbaExpress(
                     if (orderBy && !['asc', 'desc'].includes(sortDir)) {
                         res.status(400).json({
                             error: 'Invalid sort parameter',
-                            message:
-                                'Sort direction must be either "asc" or "desc"',
+                            message: `Sort direction must be 'asc' or 'desc', received '${sortDir}'`,
                         });
                         return;
                     }
                     if (orderBy && !isValidField(orderBy)) {
                         res.status(400).json({
                             error: 'Invalid sort parameter',
-                            message: `Unknown field ${orderBy}`,
+                            message: `Unknown field '${orderBy}' for sorting`,
                         });
                         return;
                     }
@@ -639,7 +642,7 @@ export function createSkibbaExpress(
                         if (!isValidField(field)) {
                             res.status(400).json({
                                 error: 'Invalid filter parameter',
-                                message: `Invalid field ${field}`,
+                                message: `Filter field '${field}' does not exist`,
                             });
                             return;
                         }
@@ -1204,14 +1207,15 @@ export function createSkibbaExpress(
                     ) {
                         res.status(400).json({
                             error: 'Invalid request body',
-                            message: 'Request body must be a valid JSON object',
+                            message:
+                                'Request body must be a valid JSON object and not an array',
                         });
                         return;
                     }
                     if (hasDangerousKeys(data)) {
                         res.status(400).json({
                             error: 'Security violation',
-                            message: 'Dangerous object keys',
+                            message: 'Request contains prohibited object keys',
                         });
                         return;
                     }
@@ -1240,14 +1244,15 @@ export function createSkibbaExpress(
                     ) {
                         res.status(400).json({
                             error: 'Invalid request body',
-                            message: 'Request body must be a valid JSON object',
+                            message:
+                                'Request body must be a valid JSON object and not an array',
                         });
                         return;
                     }
                     if (hasDangerousKeys(data)) {
                         res.status(400).json({
                             error: 'Security violation',
-                            message: 'Dangerous object keys',
+                            message: 'Request contains prohibited object keys',
                         });
                         return;
                     }
@@ -1333,7 +1338,7 @@ const handleDbErrors = (err: any, res: Response) => {
     if (msg.includes('NOT NULL') || msg.includes('constraint')) {
         res.status(400).json({
             error: 'Database constraint violation',
-            message: msg,
+            message: `Database constraint violation: ${msg}`,
         });
         return true;
     }

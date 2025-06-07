@@ -466,7 +466,9 @@ describe('SkibbaDB Express Integration', () => {
                 .expect(400);
 
             expect(response.body.error).toBe('Database constraint violation');
-            expect(response.body.message).toBe('Document violates unique constraint on field: email');
+            expect(response.body.message).toBe(
+                'Database constraint violation: Document violates unique constraint on field: email'
+            );
         });
 
         it('should handle not found errors', async () => {
