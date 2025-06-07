@@ -254,7 +254,9 @@ export function createSkibbaExpress(
 
     (app as any).getOpenAPISpec = () => openapiSpec;
     (app as any).serveOpenAPISpec = (path = '/openapi.json') => {
-        app.get(path, (_req, res) => res.json(openapiSpec));
+        app.get(path, (_req: Request, res: Response) => {
+            res.json(openapiSpec);
+        });
     };
 
     (app as any).useCollection = function <
